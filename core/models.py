@@ -6,13 +6,22 @@ from django.db import models
 # Modelos de Entidades Base
 # ----------------------------
 
+# backend/core/models.py
 class Cliente(models.Model):
-    """Representa um cliente da gráfica."""
-    nome = models.CharField(max_length=200, help_text="Nome completo ou razão social do cliente")
-    email = models.EmailField(unique=True, blank=True, null=True, help_text="E-mail principal para contato")
-    telefone = models.CharField(max_length=20, help_text="Telefone para contato (com DDD)")
-    cpf_cnpj = models.CharField(max_length=18, unique=True, blank=True, null=True, help_text="CPF ou CNPJ do cliente")
-    # Outros campos que podem ser úteis: endereco, data_cadastro, etc.
+    nome = models.CharField(max_length=200) # Pode ser Nome ou Razão Social
+    email = models.EmailField(unique=True, blank=True, null=True)
+    telefone = models.CharField(max_length=20, blank=True, null=True)
+    cpf_cnpj = models.CharField(max_length=18, unique=True, blank=True, null=True)
+
+    # --- NOVOS CAMPOS (Exemplo) ---
+    observacao = models.TextField(blank=True, null=True)
+    cep = models.CharField(max_length=10, blank=True, null=True)
+    endereco = models.CharField(max_length=255, blank=True, null=True)
+    numero = models.CharField(max_length=10, blank=True, null=True)
+    bairro = models.CharField(max_length=100, blank=True, null=True)
+    cidade = models.CharField(max_length=100, blank=True, null=True)
+    estado = models.CharField(max_length=2, blank=True, null=True)
+    # etc...
 
     def __str__(self):
         return self.nome

@@ -5,7 +5,11 @@ from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedi
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
-        fields = ['id', 'nome', 'email', 'telefone', 'cpf_cnpj']
+        # Adicione TODOS os novos campos aqui
+        fields = [
+            'id', 'nome', 'email', 'telefone', 'cpf_cnpj', 
+            'observacao', 'cep', 'endereco', 'numero', 'bairro', 'cidade', 'estado'
+        ]
 
 class ProdutoSerializer(serializers.ModelSerializer):
     class Meta:
