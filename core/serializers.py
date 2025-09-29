@@ -5,11 +5,34 @@ from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedi
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
-        # Adicione TODOS os novos campos aqui
         fields = [
             'id', 'nome', 'email', 'telefone', 'cpf_cnpj', 
-            'observacao', 'cep', 'endereco', 'numero', 'bairro', 'cidade', 'estado'
+            'observacao', 'cep', 'endereco', 'numero', 'bairro', 'cidade', 'estado',
+            'data_cadastro'
         ]
+        read_only_fields = ['data_cadastro']
+
+    def validate_cpf_cnpj(self, value):
+        """
+        Verifica se o CPF/CNPJ já existe no banco de dados,
+        ignorando o próprio objeto em caso de atualização.
+        """
+        # Se o valor for vazio ou nulo, não fazemos a validação
+        if not value:
+            return value
+
+        # Checa se existe outro cliente com o mesmo cpf_cnpj
+        query = Cliente.objects.filter(cpf_cnpj=value)
+
+        # Se estivermos atualizando um cliente (self.instance existe),
+        # excluímos o próprio cliente da busca para permitir salvar sem alterar o cpf_cnpj.
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
+            raise serializers.ValidationError("Já existe um cliente cadastrado com este CPF/CNPJ.")
+
+        return value
 
 class ProdutoSerializer(serializers.ModelSerializer):
     class Meta:

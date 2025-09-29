@@ -15,10 +15,8 @@ class ClienteViewSet(viewsets.ModelViewSet):
     """
     Endpoint da API que permite aos clientes serem visualizados ou editados.
     """
-    queryset = Cliente.objects.all().order_by('nome')
+    queryset = Cliente.objects.all().order_by('-data_cadastro')
     serializer_class = ClienteSerializer
-
-# --- Adicione o código abaixo ---
 
 class ProdutoViewSet(viewsets.ModelViewSet):
     """
@@ -32,7 +30,7 @@ class OrcamentoViewSet(viewsets.ModelViewSet):
     queryset = Orcamento.objects.all()
     serializer_class = OrcamentoSerializer
 
-    # --- Adicione o método abaixo ---
+    
     @action(detail=True, methods=['post'], url_path='converter-para-pedido')
     def converter_para_pedido(self, request, pk=None):
         """
