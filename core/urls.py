@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 # Importe o ProdutoViewSet junto com o ClienteViewSet
 from .views import (
     ClienteViewSet, ProdutoViewSet, OrcamentoViewSet, ItemOrcamentoViewSet,
-    PedidoViewSet, ItemPedidoViewSet
+    PedidoViewSet, ItemPedidoViewSet, DashboardStatsView
 )
 
 router = DefaultRouter()
@@ -17,4 +17,5 @@ router.register(r'itens-pedido', ItemPedidoViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('dashboard-stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
 ]
