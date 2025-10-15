@@ -27,63 +27,30 @@ class ClienteViewSet(viewsets.ModelViewSet):
 class ProdutoViewSet(viewsets.ModelViewSet):
     """
     Endpoint da API que permite aos produtos serem visualizados ou editados.
+    Permite filtrar por tipo_precificacao (ex: /api/produtos/?tipo_precificacao=M2)
     """
-    queryset = Produto.objects.all().order_by('nome')
     serializer_class = ProdutoSerializer
+
+    def get_queryset(self):
+        queryset = Produto.objects.all().order_by('nome')
+        tipo = self.request.query_params.get('tipo_precificacao')
+        if tipo is not None:
+            queryset = queryset.filter(tipo_precificacao=tipo)
+        return queryset
 
 
 class OrcamentoViewSet(viewsets.ModelViewSet):
-    queryset = Orcamento.objects.all()
+    queryset = Orcamento.objects.all().order_by('-data_criacao')
     serializer_class = OrcamentoSerializer
 
-    
-    @action(detail=True, methods=['post'], url_path='converter-para-pedido')
-    def converter_para_pedido(self, request, pk=None):
-        """
-        Ação customizada para criar um Pedido a partir de um Orçamento.
-        """
-        orcamento = self.get_object()
-
-        # 1. Validação: Verificar se já não existe um pedido para este orçamento
-        if hasattr(orcamento, 'pedido'):
-            return Response(
-                {'error': 'Este orçamento já foi convertido em um pedido.'},
-                status=status.HTTP_409_CONFLICT
-            )
-
-        # 2. Criação do Pedido
-        novo_pedido = Pedido.objects.create(
-            cliente=orcamento.cliente,
-            orcamento_origem=orcamento,
-            valor_total=orcamento.valor_total,
-            # Você pode definir status iniciais aqui
-            status_producao='Aguardando',
-            status_pagamento='PENDENTE'
-        )
-
-        # 3. Criação dos Itens do Pedido (copiando dos itens do orçamento)
-        itens_para_criar = []
-        for item_orcamento in orcamento.itens.all():
-            itens_para_criar.append(
-                ItemPedido(
-                    pedido=novo_pedido,
-                    produto=item_orcamento.produto,
-                    quantidade=item_orcamento.quantidade,
-                    largura=item_orcamento.largura,
-                    altura=item_orcamento.altura,
-                    subtotal=item_orcamento.subtotal
-                )
-            )
-        
-        ItemPedido.objects.bulk_create(itens_para_criar)
-
-        # 4. (Opcional) Atualizar o status do orçamento
-        orcamento.status = 'Aprovado'
-        orcamento.save()
-
-        # 5. Retornar a resposta com os dados do novo pedido
-        serializer = PedidoSerializer(novo_pedido)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def perform_create(self, serializer):
+        # O serializer.save() já vai criar o orçamento e os itens
+        # graças à nossa configuração no serializer.
+        # O Django REST Framework é inteligente o suficiente para lidar
+        # com a criação de objetos aninhados se o serializer estiver configurado.
+        # Depois de salvar, chamamos o método para recalcular o total.
+        orcamento_instance = serializer.save()
+        orcamento_instance.recalcular_total()
 
 class ItemOrcamentoViewSet(viewsets.ModelViewSet):
     queryset = ItemOrcamento.objects.all()

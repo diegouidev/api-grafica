@@ -39,48 +39,67 @@ class ProdutoSerializer(serializers.ModelSerializer):
         model = Produto
         fields = ['id', 'nome', 'tipo_precificacao', 'preco']
 
-# --- Adicione o código abaixo ---
+
+class ProdutoResumidoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Produto
+        fields = ['id', 'nome']
+
 
 class ItemOrcamentoSerializer(serializers.ModelSerializer):
-    """
-    Serializer para um item dentro de um orçamento.
-    """
+
+    produto = ProdutoResumidoSerializer(read_only=True)
     class Meta:
         model = ItemOrcamento
-        fields = [
-            'id',
-            'orcamento',
-            'produto',
-            'quantidade',
-            'largura',
-            'altura',
-            'subtotal'
-        ]
-        # O subtotal não deve ser enviado pelo usuário, será calculado no back-end.
-        read_only_fields = ['subtotal']
+        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'subtotal']
+
+
+class ClienteResumidoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cliente
+        fields = ['id', 'nome']
+
+class ItemOrcamentoWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ItemOrcamento
+        fields = ['produto', 'quantidade', 'largura', 'altura']
 
 class OrcamentoSerializer(serializers.ModelSerializer):
-    """
-    Serializer para o Orçamento, que incluirá uma lista dos seus itens.
-    """
-    # Usamos o 'ItemOrcamentoSerializer' para exibir os itens de forma aninhada.
-    # 'many=True' indica que pode haver múltiplos itens.
-    # 'read_only=True' significa que não criaremos itens por aqui, apenas os exibiremos.
+    # Serializers para LEITURA (quando enviamos dados para o front-end)
+    cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemOrcamentoSerializer(many=True, read_only=True)
+    
+    # Serializer para ESCRITA (quando recebemos dados do front-end)
+    # Usamos 'source' para ligar este campo ao relacionamento 'itens' do modelo
+    itens_write = ItemOrcamentoWriteSerializer(many=True, write_only=True, source='itens')
+    # O front-end envia apenas o ID do cliente, então usamos PrimaryKeyRelatedField para escrita
+    cliente_id = serializers.PrimaryKeyRelatedField(
+        queryset=Cliente.objects.all(), source='cliente', write_only=True
+    )
 
     class Meta:
         model = Orcamento
         fields = [
-            'id',
-            'cliente',
-            'data_criacao',
-            'valor_total',
-            'status',
-            'itens' # Adicionamos o campo aninhado aqui
+            'id', 'cliente', 'data_criacao', 'valor_total', 'status', 'itens',
+            'cliente_id', 'itens_write' # Adicionamos os campos de escrita
         ]
-        # O valor_total também será calculado automaticamente.
-        read_only_fields = ['valor_total']
-
+    
+    def create(self, validated_data):
+        """
+        Método customizado para criar um Orçamento e seus Itens de uma só vez.
+        """
+        # 1. Remove os dados dos itens do dicionário principal.
+        itens_data = validated_data.pop('itens')
+        
+        # 2. Cria a instância principal do Orçamento com os dados restantes.
+        orcamento = Orcamento.objects.create(**validated_data)
+        
+        # 3. Itera sobre cada item recebido e o cria, ligando-o ao orçamento recém-criado.
+        for item_data in itens_data:
+            ItemOrcamento.objects.create(orcamento=orcamento, **item_data)
+            
+        return orcamento
+    
 
 class ItemPedidoSerializer(serializers.ModelSerializer):
     """ Serializer para um item dentro de um pedido. """

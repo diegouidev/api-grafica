@@ -1,6 +1,7 @@
 # Em seu_app/models.py
 
 from django.db import models
+from django.utils import timezone
 
 # ----------------------------
 # Modelos de Entidades Base
@@ -70,6 +71,7 @@ class Orcamento(models.Model):
     data_criacao = models.DateTimeField(auto_now_add=True)
     valor_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=50, default='Em Aberto', help_text="Ex: Em Aberto, Aprovado, Rejeitado")
+    data_criacao = models.DateTimeField(default=timezone.now)
 
     # --- Adicione o método abaixo ---
     def recalcular_total(self):
@@ -132,6 +134,7 @@ class Pedido(models.Model):
     valor_total = models.DecimalField(max_digits=10, decimal_places=2)
     status_producao = models.CharField(max_length=50, default='Aguardando', help_text="Ex: Aguardando Arte, Em Produção, Finalizado")
     status_pagamento = models.CharField(max_length=10, choices=StatusPagamento.choices, default=StatusPagamento.PENDENTE)
+    data_criacao = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
         return f'Pedido #{self.id} - {self.cliente.nome}'

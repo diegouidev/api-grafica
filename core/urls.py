@@ -9,11 +9,11 @@ from .views import (
 router = DefaultRouter()
 
 router.register(r'clientes', ClienteViewSet)
-router.register(r'produtos', ProdutoViewSet)
 router.register(r'orcamentos', OrcamentoViewSet)
 router.register(r'itens-orcamento', ItemOrcamentoViewSet)
 router.register(r'pedidos', PedidoViewSet)
 router.register(r'itens-pedido', ItemPedidoViewSet)
+router.register(r'produtos', ProdutoViewSet, basename='produto')
 
 urlpatterns = [
     path('', include(router.urls)),
