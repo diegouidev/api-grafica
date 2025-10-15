@@ -102,31 +102,51 @@ class OrcamentoSerializer(serializers.ModelSerializer):
     
 
 class ItemPedidoSerializer(serializers.ModelSerializer):
-    """ Serializer para um item dentro de um pedido. """
+    produto = ProdutoResumidoSerializer(read_only=True)
     class Meta:
         model = ItemPedido
-        fields = [
-            'id',
-            'produto',
-            'quantidade',
-            'largura',
-            'altura',
-            'subtotal'
-        ]
+        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'subtotal']
+
+class ItemPedidoWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ItemPedido
+        fields = ['produto', 'quantidade', 'largura', 'altura']
 
 class PedidoSerializer(serializers.ModelSerializer):
-    """ Serializer para o Pedido, que incluirá uma lista dos seus itens. """
+    cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemPedidoSerializer(many=True, read_only=True)
+    
+    itens_write = ItemPedidoWriteSerializer(many=True, write_only=True, source='itens', required=False)
+    cliente_id = serializers.PrimaryKeyRelatedField(
+        queryset=Cliente.objects.all(), source='cliente', write_only=True, required=False
+    )
 
     class Meta:
         model = Pedido
         fields = [
-            'id',
-            'cliente',
-            'orcamento_origem',
-            'data_criacao',
-            'valor_total',
-            'status_producao',
-            'status_pagamento',
-            'itens'
+            'id', 'cliente', 'data_criacao', 'valor_total', 
+            'status_producao', 'status_pagamento', 'orcamento_origem',
+            'itens', 'itens_write', 'cliente_id'
         ]
+        # A CORREÇÃO ESTÁ AQUI: Dizemos ao serializer para não esperar o 'valor_total' na entrada.
+        read_only_fields = ['valor_total']
+    
+    def update(self, instance, validated_data):
+        itens_data = validated_data.pop('itens', None)
+
+        instance.status_producao = validated_data.get('status_producao', instance.status_producao)
+        instance.status_pagamento = validated_data.get('status_pagamento', instance.status_pagamento)
+        
+        if 'cliente' in validated_data:
+            instance.cliente = validated_data.get('cliente', instance.cliente)
+
+        instance.save()
+
+        if itens_data is not None:
+            instance.itens.all().delete()
+            for item_data in itens_data:
+                ItemPedido.objects.create(pedido=instance, **item_data)
+        
+        instance.recalcular_total() # Recalcula o total com base nos novos itens
+
+        return instance

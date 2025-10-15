@@ -2,6 +2,7 @@
 
 from django.db import models
 from django.utils import timezone
+from django.db.models import Sum
 
 # ----------------------------
 # Modelos de Entidades Base
@@ -138,6 +139,13 @@ class Pedido(models.Model):
 
     def __str__(self):
         return f'Pedido #{self.id} - {self.cliente.nome}'
+    
+    def recalcular_total(self):
+        for item in self.itens.all():
+            item.save()
+        total = self.itens.aggregate(total_calculado=Sum('subtotal'))['total_calculado']
+        self.valor_total = total if total is not None else 0
+        self.save(update_fields=['valor_total'])
 
     class Meta:
         verbose_name = "Pedido"
@@ -158,6 +166,19 @@ class ItemPedido(models.Model):
 
     def __str__(self):
         return f'{self.quantidade}x {self.produto.nome} (Pedido #{self.pedido.id})'
+    
+    def save(self, *args, **kwargs):
+        if self.produto.tipo_precificacao == 'M2':
+            if not self.largura or not self.altura:
+                # Se for um produto por m², largura e altura são esperadas
+                # Poderíamos lançar um erro ou usar um valor padrão
+                self.subtotal = 0 # ou lançar um ValueError
+            else:
+                self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
+        else: # 'UNICO'
+            self.subtotal = self.produto.preco * self.quantidade
+            
+        super().save(*args, **kwargs) # Chama o método save original para salvar no banco
 
     class Meta:
         verbose_name = "Item de Pedido"

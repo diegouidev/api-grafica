@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, Q
 from .models import Pedido, Despesa
 import datetime
-# Importe o modelo e o serializer de Produto
+
 from .models import (
     Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido
 )
@@ -43,14 +43,63 @@ class OrcamentoViewSet(viewsets.ModelViewSet):
     queryset = Orcamento.objects.all().order_by('-data_criacao')
     serializer_class = OrcamentoSerializer
 
-    def perform_create(self, serializer):
-        # O serializer.save() já vai criar o orçamento e os itens
-        # graças à nossa configuração no serializer.
-        # O Django REST Framework é inteligente o suficiente para lidar
-        # com a criação de objetos aninhados se o serializer estiver configurado.
-        # Depois de salvar, chamamos o método para recalcular o total.
-        orcamento_instance = serializer.save()
-        orcamento_instance.recalcular_total()
+    def get_queryset(self):
+        """
+        Este método agora retorna uma lista de orçamentos, excluindo
+        aqueles que já foram aprovados.
+        """
+        # A MÁGICA ACONTECE AQUI:
+        # Pegamos todos os orçamentos, ordenamos pelos mais recentes,
+        # e então excluímos todos que tiverem o status 'Aprovado'.
+        return Orcamento.objects.all().order_by('-data_criacao').exclude(status='Aprovado')
+
+    # --- GARANTA QUE ESTE MÉTODO COMPLETO ESTÁ AQUI DENTRO ---
+    @action(detail=True, methods=['post'], url_path='converter-para-pedido')
+    def converter_para_pedido(self, request, pk=None):
+        """
+        Ação customizada para criar um Pedido a partir de um Orçamento.
+        """
+        orcamento = self.get_object()
+
+        # Validação para não converter duas vezes
+        if hasattr(orcamento, 'pedido'):
+            return Response(
+                {'error': 'Este orçamento já foi convertido em um pedido.'},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # Criação do Pedido
+        novo_pedido = Pedido.objects.create(
+            cliente=orcamento.cliente,
+            orcamento_origem=orcamento,
+            valor_total=orcamento.valor_total,
+            status_producao='Aguardando',
+            status_pagamento='PENDENTE'
+        )
+
+        # Copiando os Itens do Orçamento para o Pedido
+        itens_para_criar = [
+            ItemPedido(
+                pedido=novo_pedido,
+                produto=item_orcamento.produto,
+                quantidade=item_orcamento.quantidade,
+                largura=item_orcamento.largura,
+                altura=item_orcamento.altura,
+                subtotal=item_orcamento.subtotal
+            )
+            for item_orcamento in orcamento.itens.all()
+        ]
+        ItemPedido.objects.bulk_create(itens_para_criar)
+
+        # Atualiza o status do orçamento original
+        orcamento.status = 'Aprovado'
+        orcamento.save()
+
+        # Retorna os dados do novo pedido criado
+        # (Precisamos do PedidoSerializer para isso)
+        
+        serializer = PedidoSerializer(novo_pedido)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class ItemOrcamentoViewSet(viewsets.ModelViewSet):
     queryset = ItemOrcamento.objects.all()
@@ -58,8 +107,12 @@ class ItemOrcamentoViewSet(viewsets.ModelViewSet):
 
 
 class PedidoViewSet(viewsets.ModelViewSet):
-    queryset = Pedido.objects.all()
+    """
+    Endpoint da API que permite aos pedidos serem visualizados ou editados.
+    A lista é ordenada pelos pedidos mais recentes.
+    """
     serializer_class = PedidoSerializer
+    queryset = Pedido.objects.all().order_by('-data_criacao')
 
 class ItemPedidoViewSet(viewsets.ModelViewSet):
     queryset = ItemPedido.objects.all()
