@@ -4,16 +4,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Value, CharField
 from .models import Pedido, Despesa
 import datetime
 
 from .models import (
-    Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido
+    Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento
 )
 from .serializers import (
     ClienteSerializer, ProdutoSerializer, OrcamentoSerializer,
-    ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer
+    ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, DespesaSerializer
 )
 
 
@@ -119,48 +119,141 @@ class ItemPedidoViewSet(viewsets.ModelViewSet):
     serializer_class = ItemPedidoSerializer
 
 
+class DespesaViewSet(viewsets.ModelViewSet):
+    queryset = Despesa.objects.all().order_by('-data')
+    serializer_class = DespesaSerializer
+
+# --- VIEW CUSTOMIZADA PARA LISTAGEM UNIFICADA ---
+class DespesaConsolidadaView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request, *args, **kwargs):
+        despesas_gerais = Despesa.objects.annotate(tipo=Value('Geral', output_field=CharField())).values('id', 'descricao', 'valor', 'data', 'categoria', 'tipo')
+        custos_producao = Pedido.objects.filter(custo_producao__gt=0).annotate(tipo=Value('Produção', output_field=CharField())).values('id', 'custo_producao', 'data_criacao', 'tipo', 'cliente__nome')
+        custos_formatados = [{'id': f"p_{custo['id']}", 'descricao': f"Custo do Pedido #{custo['id']} ({custo['cliente__nome']})", 'valor': custo['custo_producao'], 'data': custo['data_criacao'].date(), 'categoria': 'Custo de Produção', 'tipo': custo['tipo']} for custo in custos_producao]
+        lista_combinada = sorted(list(despesas_gerais) + custos_formatados, key=lambda x: x['data'], reverse=True)
+        serializer = DespesaConsolidadaSerializer(lista_combinada, many=True)
+        return Response(serializer.data)
+
 
 class DashboardStatsView(APIView):
     """
-    View para fornecer estatísticas agregadas para o dashboard.
+    View para fornecer estatísticas agregadas e dinâmicas para o dashboard.
     """
-    permission_classes = [IsAuthenticated] # Garante que apenas usuários logados acessem
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        # Pega o primeiro e último dia do mês atual
+        # --- PERÍODO DE ANÁLISE (MÊS ATUAL) ---
         today = datetime.date.today()
         start_of_month = today.replace(day=1)
 
         # Filtra os pedidos e despesas pelo mês atual
         pedidos_no_mes = Pedido.objects.filter(data_criacao__gte=start_of_month)
-        despesas_no_mes = Despesa.objects.filter(data__gte=start_of_month)
+        despesas_gerais_no_mes = Despesa.objects.filter(data__gte=start_of_month)
 
-        # 1. Calcula o Faturamento (Pedidos com status 'PAGO')
-        faturamento = pedidos_no_mes.filter(status_pagamento='PAGO').aggregate(
-            total=Sum('valor_total')
-        )['total'] or 0
+        # 1. FATURAMENTO: Soma do valor_total de TODOS os pedidos criados no mês.
+        faturamento = pedidos_no_mes.aggregate(total=Sum('valor_total'))['total'] or 0
 
-        # 2. Calcula as Despesas
-        despesas = despesas_no_mes.aggregate(
-            total=Sum('valor')
-        )['total'] or 0
+        # 2. DESPESAS TOTAIS: Soma das despesas gerais + custo de produção dos pedidos do mês.
+        despesas_operacionais = despesas_gerais_no_mes.aggregate(total=Sum('valor'))['total'] or 0
+        custo_producao_pedidos = pedidos_no_mes.aggregate(total=Sum('custo_producao'))['total'] or 0
+        despesas_totais = despesas_operacionais + custo_producao_pedidos
+        
+        # 3. LUCRO BRUTO: Faturamento do mês menos o custo de produção dos pedidos do mês.
+        lucro = faturamento - custo_producao_pedidos
 
-        # 3. Calcula o Valor a Receber (Pedidos com status 'PENDENTE' ou 'PARCIAL')
-        a_receber = pedidos_no_mes.filter(
+        # --- CÁLCULOS GLOBAIS (NÃO DEPENDEM DO MÊS) ---
+
+        # 4. VALOR A RECEBER: Soma de todos os saldos devedores de pedidos PENDENTES ou PARCIAIS.
+        pedidos_nao_quitados = Pedido.objects.filter(
             Q(status_pagamento='PENDENTE') | Q(status_pagamento='PARCIAL')
-        ).aggregate(
-            total=Sum('valor_total')
-        )['total'] or 0
+        )
+        total_devido = pedidos_nao_quitados.aggregate(total=Sum('valor_total'))['total'] or 0
+        total_pago_parcialmente = Pagamento.objects.filter(pedido__in=pedidos_nao_quitados).aggregate(total=Sum('valor'))['total'] or 0
+        a_receber = total_devido - total_pago_parcialmente
 
-        # 4. Calcula o Lucro
-        lucro = faturamento - despesas
-
-        # Monta o objeto de resposta
+        # Monta o objeto de resposta final
         data = {
             'faturamento': faturamento,
-            'despesas': despesas,
+            'despesas': despesas_totais,
             'lucro': lucro,
             'valor_a_receber': a_receber,
         }
 
         return Response(data)
+    
+
+
+class PagamentoViewSet(viewsets.ModelViewSet):
+    """
+    Endpoint da API para gerenciar pagamentos.
+    Atualiza automaticamente o status do pedido relacionado após a criação de um pagamento.
+    """
+    queryset = Pagamento.objects.all()
+    serializer_class = PagamentoSerializer
+
+    def perform_create(self, serializer):
+        """
+        Método customizado que é executado ao criar um novo pagamento.
+        """
+        # 1. Salva a instância do novo pagamento no banco de dados.
+        pagamento = serializer.save()
+
+        # 2. Pega o pedido que está associado a este pagamento.
+        pedido = pagamento.pedido
+
+        # 3. Calcula a soma de TODOS os pagamentos para este pedido.
+        total_pago = pedido.pagamentos.aggregate(total=Sum('valor'))['total'] or 0
+
+        # 4. A LÓGICA DE NEGÓCIO:
+        # Compara o total pago com o valor total do pedido.
+        if total_pago >= pedido.valor_total:
+            # Se o valor foi quitado (ou ultrapassado), marca o pedido como PAGO.
+            pedido.status_pagamento = Pedido.StatusPagamento.PAGO
+        else:
+            # Se ainda falta pagar, marca como PARCIAL.
+            pedido.status_pagamento = Pedido.StatusPagamento.PARCIAL
+        
+        # 5. Salva a alteração do status no pedido.
+        pedido.save()
+
+
+class VendasRecentesView(APIView):
+    """
+    View customizada que retorna os 5 pedidos mais recentes.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # 1. Busca todos os pedidos no banco de dados
+        # 2. Ordena pelos mais recentes (data de criação decrescente)
+        # 3. Pega apenas os 5 primeiros resultados
+        ultimos_pedidos = Pedido.objects.all().order_by('-data_criacao')[:5]
+        
+        # 4. Usa o PedidoSerializer que já temos para formatar os dados
+        serializer = PedidoSerializer(ultimos_pedidos, many=True)
+        
+        # 5. Retorna os dados formatados
+        return Response(serializer.data)
+    
+
+class FaturamentoPorPagamentoView(APIView):
+    """
+    View customizada que retorna o faturamento total do mês,
+    agrupado por forma de pagamento.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        today = datetime.date.today()
+        start_of_month = today.replace(day=1)
+
+        # 1. Busca todos os pagamentos do mês atual
+        # 2. Usa .values() para agrupar por 'forma_pagamento'
+        # 3. Usa .annotate() para criar um novo campo 'total' com a soma dos valores de cada grupo
+        # 4. Ordena do maior para o menor total
+        faturamento_agrupado = Pagamento.objects.filter(data__gte=start_of_month)\
+            .values('forma_pagamento')\
+            .annotate(total=Sum('valor'))\
+            .order_by('-total')
+
+        return Response(faturamento_agrupado)

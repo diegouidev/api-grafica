@@ -1,6 +1,7 @@
 from rest_framework import serializers
 # Importe os novos modelos
-from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido
+from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa
+from django.db.models import Sum
 
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -65,14 +66,10 @@ class ItemOrcamentoWriteSerializer(serializers.ModelSerializer):
         fields = ['produto', 'quantidade', 'largura', 'altura']
 
 class OrcamentoSerializer(serializers.ModelSerializer):
-    # Serializers para LEITURA (quando enviamos dados para o front-end)
     cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemOrcamentoSerializer(many=True, read_only=True)
     
-    # Serializer para ESCRITA (quando recebemos dados do front-end)
-    # Usamos 'source' para ligar este campo ao relacionamento 'itens' do modelo
-    itens_write = ItemOrcamentoWriteSerializer(many=True, write_only=True, source='itens')
-    # O front-end envia apenas o ID do cliente, então usamos PrimaryKeyRelatedField para escrita
+    itens_write = ItemOrcamentoWriteSerializer(many=True, write_only=True, source='itens', required=False)
     cliente_id = serializers.PrimaryKeyRelatedField(
         queryset=Cliente.objects.all(), source='cliente', write_only=True
     )
@@ -81,24 +78,38 @@ class OrcamentoSerializer(serializers.ModelSerializer):
         model = Orcamento
         fields = [
             'id', 'cliente', 'data_criacao', 'valor_total', 'status', 'itens',
-            'cliente_id', 'itens_write' # Adicionamos os campos de escrita
+            'cliente_id', 'itens_write'
         ]
+        read_only_fields = ['valor_total']
     
     def create(self, validated_data):
-        """
-        Método customizado para criar um Orçamento e seus Itens de uma só vez.
-        """
-        # 1. Remove os dados dos itens do dicionário principal.
         itens_data = validated_data.pop('itens')
-        
-        # 2. Cria a instância principal do Orçamento com os dados restantes.
         orcamento = Orcamento.objects.create(**validated_data)
-        
-        # 3. Itera sobre cada item recebido e o cria, ligando-o ao orçamento recém-criado.
         for item_data in itens_data:
             ItemOrcamento.objects.create(orcamento=orcamento, **item_data)
-            
+        orcamento.recalcular_total()
         return orcamento
+
+    # --- A NOVA LÓGICA ESTÁ AQUI ---
+    def update(self, instance, validated_data):
+        itens_data = validated_data.pop('itens', None)
+
+        # Atualiza os campos simples do Orçamento
+        instance.status = validated_data.get('status', instance.status)
+        if 'cliente' in validated_data:
+            instance.cliente = validated_data.get('cliente', instance.cliente)
+        instance.save()
+
+        # Se o front-end enviou uma nova lista de itens, apaga os antigos e recria
+        if itens_data is not None:
+            instance.itens.all().delete()
+            for item_data in itens_data:
+                ItemOrcamento.objects.create(orcamento=instance, **item_data)
+        
+        # Sempre recalcula o total ao final da atualização
+        instance.recalcular_total()
+
+        return instance
     
 
 class ItemPedidoSerializer(serializers.ModelSerializer):
@@ -112,9 +123,18 @@ class ItemPedidoWriteSerializer(serializers.ModelSerializer):
         model = ItemPedido
         fields = ['produto', 'quantidade', 'largura', 'altura']
 
+
+class PagamentoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pagamento
+        fields = ['id', 'pedido', 'valor', 'data', 'forma_pagamento']
+
 class PedidoSerializer(serializers.ModelSerializer):
     cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemPedidoSerializer(many=True, read_only=True)
+    pagamentos = PagamentoSerializer(many=True, read_only=True)
+    valor_pago = serializers.SerializerMethodField()
+    valor_a_receber = serializers.SerializerMethodField()
     
     itens_write = ItemPedidoWriteSerializer(many=True, write_only=True, source='itens', required=False)
     cliente_id = serializers.PrimaryKeyRelatedField(
@@ -124,29 +144,63 @@ class PedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pedido
         fields = [
-            'id', 'cliente', 'data_criacao', 'valor_total', 
-            'status_producao', 'status_pagamento', 'orcamento_origem',
-            'itens', 'itens_write', 'cliente_id'
+            'id', 'cliente', 'data_criacao', 'valor_total', 'status_producao', 'status_pagamento',
+            'orcamento_origem', 'itens', 'pagamentos', 'custo_producao', 'valor_pago', 'valor_a_receber',
+            'previsto_entrega', 'data_producao', 'forma_envio', 'codigo_rastreio', 'link_fornecedor',
+            'itens_write', 'cliente_id'
         ]
-        # A CORREÇÃO ESTÁ AQUI: Dizemos ao serializer para não esperar o 'valor_total' na entrada.
         read_only_fields = ['valor_total']
+
+    def get_valor_pago(self, obj):
+        total_pago = obj.pagamentos.aggregate(total=Sum('valor'))['total']
+        return total_pago or 0
+
+    def get_valor_a_receber(self, obj):
+        valor_pago = self.get_valor_pago(obj)
+        return obj.valor_total - valor_pago
     
+    # --- MÉTODO UPDATE CORRIGIDO E FINAL ---
     def update(self, instance, validated_data):
+        """
+        Método customizado que atualiza o Pedido e seus Itens.
+        """
         itens_data = validated_data.pop('itens', None)
 
-        instance.status_producao = validated_data.get('status_producao', instance.status_producao)
-        instance.status_pagamento = validated_data.get('status_pagamento', instance.status_pagamento)
-        
-        if 'cliente' in validated_data:
-            instance.cliente = validated_data.get('cliente', instance.cliente)
-
+        # Atualiza todos os campos simples do Pedido (status, custo, etc.)
+        # Esta abordagem é robusta e escala automaticamente com novos campos.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
 
+        # Se o front-end enviou uma nova lista de itens...
         if itens_data is not None:
-            instance.itens.all().delete()
+            instance.itens.all().delete() # Apaga os itens antigos
             for item_data in itens_data:
-                ItemPedido.objects.create(pedido=instance, **item_data)
+                ItemPedido.objects.create(pedido=instance, **item_data) # Recria com os novos
         
-        instance.recalcular_total() # Recalcula o total com base nos novos itens
+        # Sempre recalcula o valor total ao final, garantindo consistência
+        instance.recalcular_total()
 
         return instance
+    
+
+class DespesaSerializer(serializers.ModelSerializer):
+    """
+    Serializer para o modelo de Despesas Gerais.
+    """
+    class Meta:
+        model = Despesa
+        fields = ['id', 'descricao', 'valor', 'data', 'categoria']
+
+
+class DespesaConsolidadaSerializer(serializers.Serializer):
+    """
+    Este é um serializer que não está ligado a um modelo.
+    Ele apenas define a estrutura dos dados que nossa view customizada irá retornar.
+    """
+    id = serializers.CharField(read_only=True)
+    descricao = serializers.CharField()
+    valor = serializers.DecimalField(max_digits=10, decimal_places=2)
+    data = serializers.DateField()
+    categoria = serializers.CharField(allow_null=True)
+    tipo = serializers.CharField()

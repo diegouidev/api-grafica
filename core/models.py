@@ -136,6 +136,12 @@ class Pedido(models.Model):
     status_producao = models.CharField(max_length=50, default='Aguardando', help_text="Ex: Aguardando Arte, Em Produção, Finalizado")
     status_pagamento = models.CharField(max_length=10, choices=StatusPagamento.choices, default=StatusPagamento.PENDENTE)
     data_criacao = models.DateTimeField(default=timezone.now)
+    previsto_entrega = models.DateField(blank=True, null=True)
+    custo_producao = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    data_producao = models.DateField(blank=True, null=True)
+    forma_envio = models.CharField(max_length=100, blank=True, null=True)
+    codigo_rastreio = models.CharField(max_length=100, blank=True, null=True)
+    link_fornecedor = models.URLField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f'Pedido #{self.id} - {self.cliente.nome}'
@@ -202,3 +208,24 @@ class Despesa(models.Model):
     class Meta:
         verbose_name = "Despesa"
         verbose_name_plural = "Despesas"
+
+
+class Pagamento(models.Model):
+    class FormaPagamento(models.TextChoices):
+        PIX = 'PIX', 'Pix'
+        DINHEIRO = 'DINHEIRO', 'Dinheiro'
+        CARTAO = 'CARTAO', 'Cartão'
+        BOLETO = 'BOLETO', 'Boleto'
+
+    pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='pagamentos')
+    valor = models.DecimalField(max_digits=10, decimal_places=2)
+    data = models.DateTimeField(default=timezone.now)
+    # O campo agora usa as opções que definimos
+    forma_pagamento = models.CharField(
+        max_length=50,
+        choices=FormaPagamento.choices,
+        default=FormaPagamento.PIX
+    )
+
+    def __str__(self):
+        return f'Pagamento de R$ {self.valor} ({self.get_forma_pagamento_display()}) para o Pedido #{self.pedido.id}'
