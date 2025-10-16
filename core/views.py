@@ -1,4 +1,5 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,11 +19,13 @@ from .serializers import (
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
-    """
-    Endpoint da API que permite aos clientes serem visualizados ou editados.
-    """
     queryset = Cliente.objects.all().order_by('-data_cadastro')
     serializer_class = ClienteSerializer
+    
+    # --- A MÁGICA ESTÁ AQUI ---
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    # Define os campos pelos quais podemos fazer uma busca textual
+    search_fields = ['nome', 'cpf_cnpj', 'email']
 
 class ProdutoViewSet(viewsets.ModelViewSet):
     """
@@ -30,6 +33,8 @@ class ProdutoViewSet(viewsets.ModelViewSet):
     Permite filtrar por tipo_precificacao (ex: /api/produtos/?tipo_precificacao=M2)
     """
     serializer_class = ProdutoSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['nome']
 
     def get_queryset(self):
         queryset = Produto.objects.all().order_by('nome')
@@ -42,6 +47,8 @@ class ProdutoViewSet(viewsets.ModelViewSet):
 class OrcamentoViewSet(viewsets.ModelViewSet):
     queryset = Orcamento.objects.all().order_by('-data_criacao')
     serializer_class = OrcamentoSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['cliente__nome', 'id']
 
     def get_queryset(self):
         """
@@ -113,6 +120,8 @@ class PedidoViewSet(viewsets.ModelViewSet):
     """
     serializer_class = PedidoSerializer
     queryset = Pedido.objects.all().order_by('-data_criacao')
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['cliente__nome', 'id']
 
 class ItemPedidoViewSet(viewsets.ModelViewSet):
     queryset = ItemPedido.objects.all()
@@ -122,6 +131,8 @@ class ItemPedidoViewSet(viewsets.ModelViewSet):
 class DespesaViewSet(viewsets.ModelViewSet):
     queryset = Despesa.objects.all().order_by('-data')
     serializer_class = DespesaSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['descricao', 'categoria']
 
 # --- VIEW CUSTOMIZADA PARA LISTAGEM UNIFICADA ---
 class DespesaConsolidadaView(APIView):
@@ -181,7 +192,6 @@ class DashboardStatsView(APIView):
 
         return Response(data)
     
-
 
 class PagamentoViewSet(viewsets.ModelViewSet):
     """
