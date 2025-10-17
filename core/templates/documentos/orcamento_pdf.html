@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Orçamento #{{ orcamento.id }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            color: #333;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .header .logo {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #3b82f6; /* Azul */
+        }
+        .header .title {
+            text-align: right;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 18pt;
+            color: #1f2937;
+        }
+        .header p {
+            margin: 0;
+            font-size: 10pt;
+            color: #6b7280;
+        }
+        .details {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+        .details > div {
+            width: 48%;
+        }
+        .details h3 {
+            font-size: 11pt;
+            color: #1f2937;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .details p {
+            margin: 4px 0;
+        }
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .items-table th, .items-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .items-table thead {
+            background-color: #f9fafb;
+        }
+        .items-table th {
+            font-weight: 600;
+            color: #374151;
+        }
+        .summary {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .summary table {
+            width: 45%;
+            font-size: 11pt;
+        }
+        .summary td {
+            padding: 5px;
+        }
+        .summary .total-row td {
+            font-weight: bold;
+            font-size: 14pt;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
+        .important {
+            margin-top: 40px;
+            font-size: 9pt;
+            color: #4b5563;
+        }
+        .important h4 {
+            font-size: 10pt;
+            margin-bottom: 5px;
+        }
+        .footer {
+            position: fixed;
+            bottom: -1cm;
+            left: 0;
+            right: 0;
+            padding: 10px 0;
+            border-top: 1px solid #eee;
+            font-size: 8pt;
+            color: #6b7280;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        .footer div {
+            width: 48%;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo">
+            CLOUD GRÁFICA RÁPIDA
+        </div>
+        <div class="title">
+            <h1>Orçamento N-{{ orcamento.id }}</h1>
+            <p>Data: {{ orcamento.data_criacao|date:"d/m/Y - H:i" }}</p>
+        </div>
+    </div>
+
+    <div class="details">
+        <div>
+            <h3>DADOS DO CLIENTE</h3>
+            <p><strong>Nome:</strong> {{ orcamento.cliente.nome }}</p>
+            <p><strong>Whatsapp:</strong> {{ orcamento.cliente.telefone }}</p>
+        </div>
+        <div>
+            <h3>DETALHES DO ORÇAMENTO</h3>
+            <p><strong>Data de Validade:</strong> A definir</p>
+            <p><strong>Forma de Pagamento:</strong> Pagamento a Definir</p>
+        </div>
+    </div>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>Produto</th>
+                <th>Preço</th>
+                <th>Qtd.</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in itens %}
+            <tr>
+                <td>{{ item.produto.nome }}</td>
+                <td>R$ {{ item.valor_unitario|floatformat:2 }}</td>
+                <td>{{ item.quantidade }}</td>
+                <td>R$ {{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="summary">
+        <table>
+            <tr>
+                <td>Subtotal:</td>
+                <td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <td>Frete:</td>
+                <td style="text-align: right;">R$ 0,00</td>
+            </tr>
+            <tr class="total-row">
+                <td>Total:</td>
+                <td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td>
+            </tr>
+        </table>
+    </div>
+    
+    <div class="important">
+        <h4>IMPORTANTE:</h4>
+        <p>Este orçamento tem validade até [Data de Validade]. Após esta data, os preços e condições podem ser revisados.</p>
+    </div>
+
+    <div class="footer">
+        <div><p>📞 (85) 9 9853-2888</p></div>
+        <div><p>🌐 https://www.instagram.com/cloudgraficarapida/</p></div>
+        <div><p>✉️ cloudgraficarapida1@gmail.com</p></div>
+        <div><p>📍 Rua Luis Gonzaga dos Santos, 555 - Pajuçara, Maracanaú/CE - CEP: 61932-600</p></div>
+    </div>
+</body>
+</html>

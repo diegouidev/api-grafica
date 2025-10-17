@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório de Faturamento</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            color: #333;
+            font-size: 12px;
+        }
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .total-row td {
+            font-weight: bold;
+            font-size: 14px;
+            background-color: #f9f9f9;
+        }
+        .footer {
+            position: fixed;
+            bottom: -1cm;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 10px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="footer">
+        Cloud Gráfica - Gerado em {% now "d/m/Y H:i" %}
+    </div>
+
+    <h1>Relatório de Faturamento</h1>
+    <h2>Período de Análise: {{ data_inicio }} a {{ data_fim }}</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Pedido #</th>
+                <th>Data</th>
+                <th>Cliente</th>
+                <th>Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pedido in pedidos %}
+            <tr>
+                <td>{{ pedido.id }}</td>
+                <td>{{ pedido.data_criacao|date:"d/m/Y" }}</td>
+                <td>{{ pedido.cliente.nome }}</td>
+                <td>R$ {{ pedido.valor_total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td colspan="3" style="text-align: right;">Total Faturado no Período:</td>
+                <td>R$ {{ total_faturado|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+    </table>
+
+</body>
+</html>

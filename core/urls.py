@@ -4,7 +4,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ClienteViewSet, ProdutoViewSet, OrcamentoViewSet, ItemOrcamentoViewSet,
     PedidoViewSet, ItemPedidoViewSet, DashboardStatsView, PagamentoViewSet, 
-    DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView
+    DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView, 
+    RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView
 )
 
 router = DefaultRouter()
@@ -24,4 +25,7 @@ urlpatterns = [
     path('despesas/', DespesaConsolidadaView.as_view(), name='despesa-consolidada'),
     path('vendas-recentes/', VendasRecentesView.as_view(), name='vendas-recentes'),
     path('faturamento-por-pagamento/', FaturamentoPorPagamentoView.as_view(), name='faturamento-por-pagamento'),
+    path('relatorios/faturamento/', RelatorioFaturamentoView.as_view(), name='relatorio-faturamento'),
+    path('orcamentos/<int:pk>/pdf/', OrcamentoPDFView.as_view(), name='orcamento-pdf'),
+    path('pedidos/<int:pk>/pdf/', PedidoPDFView.as_view(), name='pedido-pdf'),
 ]

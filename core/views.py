@@ -8,6 +8,10 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, Q, Value, CharField
 from .models import Pedido, Despesa
 import datetime
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from weasyprint import HTML, CSS
+from django.shortcuts import get_object_or_404
 
 from .models import (
     Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento
@@ -267,3 +271,107 @@ class FaturamentoPorPagamentoView(APIView):
             .order_by('-total')
 
         return Response(faturamento_agrupado)
+    
+
+
+class RelatorioFaturamentoView(APIView):
+    """
+    View para gerar e retornar um relatório de faturamento em PDF.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        data_inicio_str = request.query_params.get('data_inicio')
+        data_fim_str = request.query_params.get('data_fim')
+
+        if not data_inicio_str or not data_fim_str:
+            return Response(
+                {'error': 'As datas de início e fim são obrigatórias.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data_inicio = datetime.datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
+        data_fim = datetime.datetime.strptime(data_fim_str, '%Y-%m-%d').date()
+
+        # Busca os pedidos pagos dentro do período especificado
+        pedidos = Pedido.objects.filter(
+            data_criacao__date__range=[data_inicio, data_fim],
+            status_pagamento='PAGO'
+        ).order_by('data_criacao')
+
+        # Calcula o total
+        total_faturado = pedidos.aggregate(total=Sum('valor_total'))['total'] or 0
+
+        # Prepara o contexto para o template HTML
+        context = {
+            'pedidos': pedidos,
+            'total_faturado': total_faturado,
+            'data_inicio': data_inicio.strftime('%d/%m/%Y'),
+            'data_fim': data_fim.strftime('%d/%m/%Y'),
+        }
+
+        # Renderiza o template HTML como uma string
+        html_string = render_to_string('relatorios/faturamento.html', context)
+        
+        # Gera o PDF a partir do HTML
+        pdf = HTML(string=html_string).write_pdf()
+
+        # Cria a resposta HTTP com o conteúdo do PDF
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="relatorio_faturamento_{data_inicio_str}_a_{data_fim_str}.pdf"'
+        
+        return response
+    
+
+class OrcamentoPDFView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        orcamento = get_object_or_404(Orcamento, pk=pk)
+        
+        # --- A LÓGICA DE CÁLCULO ESTÁ AQUI ---
+        itens = orcamento.itens.all()
+        for item in itens:
+            # Calcula o valor unitário em Python e o anexa ao objeto do item
+            if item.quantidade > 0:
+                item.valor_unitario = item.subtotal / item.quantidade
+            else:
+                item.valor_unitario = 0
+        
+        context = {
+            'orcamento': orcamento,
+            'itens': itens # Passa a lista de itens já modificada para o template
+        }
+        
+        html_string = render_to_string('documentos/orcamento_pdf.html', context)
+        pdf = HTML(string=html_string).write_pdf()
+        
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="orcamento_{pk}.pdf"'
+        return response
+
+class PedidoPDFView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        pedido = get_object_or_404(Pedido, pk=pk)
+
+        # --- A LÓGICA DE CÁLCULO ESTÁ AQUI ---
+        itens = pedido.itens.all()
+        for item in itens:
+            if item.quantidade > 0:
+                item.valor_unitario = item.subtotal / item.quantidade
+            else:
+                item.valor_unitario = 0
+
+        context = {
+            'pedido': pedido,
+            'itens': itens # Passa a lista de itens modificada
+        }
+
+        html_string = render_to_string('documentos/pedido_os_pdf.html', context)
+        pdf = HTML(string=html_string).write_pdf()
+        
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="pedido_os_{pk}.pdf"'
+        return response
