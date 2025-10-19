@@ -100,19 +100,19 @@ class ItemOrcamento(models.Model):
     largura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     altura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
+    descricao_customizada = models.CharField(max_length=255, blank=True, null=True)
 
     # --- Adicione o método save abaixo ---
     def save(self, *args, **kwargs):
-        # Lógica de cálculo do subtotal
-        if self.produto.tipo_precificacao == 'M2':
-            # Validação para garantir que largura e altura foram fornecidas
-            if not self.largura or not self.altura:
-                raise ValueError("Largura e Altura são obrigatórias para produtos por m²")
-            self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
-        else: # 'UNICO'
-            self.subtotal = self.produto.preco * self.quantidade
-            
-        super().save(*args, **kwargs) # Chama o método save original para salvar no banco
+        if not self.subtotal:
+            if self.produto.tipo_precificacao == 'M2':
+                if not self.largura or not self.altura:
+                    self.subtotal = 0 
+                else:
+                    self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
+            else: # 'UNICO'
+                self.subtotal = self.produto.preco * self.quantidade
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.quantidade}x {self.produto.nome} (Orçamento #{self.orcamento.id})'
@@ -167,6 +167,7 @@ class ItemPedido(models.Model):
     # Campos para produtos m². Nulos se o produto for de preço único.
     largura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     altura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    descricao_customizada = models.CharField(max_length=255, blank=True, null=True)
     
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
 
@@ -174,17 +175,14 @@ class ItemPedido(models.Model):
         return f'{self.quantidade}x {self.produto.nome} (Pedido #{self.pedido.id})'
     
     def save(self, *args, **kwargs):
-        if self.produto.tipo_precificacao == 'M2':
-            if not self.largura or not self.altura:
-                # Se for um produto por m², largura e altura são esperadas
-                # Poderíamos lançar um erro ou usar um valor padrão
-                self.subtotal = 0 # ou lançar um ValueError
-            else:
+        if not self.subtotal:
+            if self.produto.tipo_precificacao == 'M2':
+                if not self.largura or not self.altura:
+                    raise ValueError("Largura e Altura são obrigatórias para produtos por m²")
                 self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
-        else: # 'UNICO'
-            self.subtotal = self.produto.preco * self.quantidade
-            
-        super().save(*args, **kwargs) # Chama o método save original para salvar no banco
+            else: # 'UNICO'
+                self.subtotal = self.produto.preco * self.quantidade
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Item de Pedido"

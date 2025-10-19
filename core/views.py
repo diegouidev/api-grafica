@@ -329,6 +329,11 @@ class OrcamentoPDFView(APIView):
 
     def get(self, request, pk, *args, **kwargs):
         orcamento = get_object_or_404(Orcamento, pk=pk)
+        empresa = Empresa.objects.first()
+
+        logo_url = None
+        if empresa and empresa.logo_orcamento_pdf:
+            logo_url = request.build_absolute_uri(empresa.logo_orcamento_pdf.url)
         
         # --- A LÓGICA DE CÁLCULO ESTÁ AQUI ---
         itens = orcamento.itens.all()
@@ -341,7 +346,9 @@ class OrcamentoPDFView(APIView):
         
         context = {
             'orcamento': orcamento,
-            'itens': itens # Passa a lista de itens já modificada para o template
+            'itens': itens, # Passa a lista de itens já modificada para o template
+            'empresa': empresa, # Adiciona os dados da empresa ao contexto
+            'logo_url': logo_url
         }
         
         html_string = render_to_string('documentos/orcamento_pdf.html', context)
@@ -356,6 +363,11 @@ class PedidoPDFView(APIView):
 
     def get(self, request, pk, *args, **kwargs):
         pedido = get_object_or_404(Pedido, pk=pk)
+        empresa = Empresa.objects.first()
+
+        logo_url = None
+        if empresa and empresa.logo_orcamento_pdf:
+            logo_url = request.build_absolute_uri(empresa.logo_orcamento_pdf.url)
 
         # --- A LÓGICA DE CÁLCULO ESTÁ AQUI ---
         itens = pedido.itens.all()
@@ -367,7 +379,9 @@ class PedidoPDFView(APIView):
 
         context = {
             'pedido': pedido,
-            'itens': itens # Passa a lista de itens modificada
+            'itens': itens,
+            'empresa': empresa,
+            'logo_url': logo_url
         }
 
         html_string = render_to_string('documentos/pedido_os_pdf.html', context)

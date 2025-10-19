@@ -63,7 +63,8 @@ class ClienteResumidoSerializer(serializers.ModelSerializer):
 class ItemOrcamentoWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItemOrcamento
-        fields = ['produto', 'quantidade', 'largura', 'altura']
+        fields = ['produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal']
+        extra_kwargs = {'subtotal': {'required': False}}
 
 class OrcamentoSerializer(serializers.ModelSerializer):
     cliente = ClienteResumidoSerializer(read_only=True)
@@ -121,7 +122,8 @@ class ItemPedidoSerializer(serializers.ModelSerializer):
 class ItemPedidoWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItemPedido
-        fields = ['produto', 'quantidade', 'largura', 'altura']
+        fields = ['produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal']
+        extra_kwargs = {'subtotal': {'required': False}}
 
 
 class PagamentoSerializer(serializers.ModelSerializer):

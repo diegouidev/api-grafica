@@ -31,7 +31,13 @@
 
     <div class="header">
         <div class="logo">
-            CLOUD GRÁFICA RÁPIDA
+            {% if logo_url %}
+                <img src="{{ logo_url }}" alt="Logo da Empresa">
+            {% else %}
+                <span style="font-size: 24pt; font-weight: bold; color: #3b82f6;">
+                    {{ empresa.nome_empresa|default:"CLOUD GRÁFICA" }}
+                </span>
+            {% endif %}
         </div>
         <div class="title">
             <h1>Ordem de Serviço N-{{ pedido.id }}</h1>
@@ -83,10 +89,10 @@
     </div>
     
     <div class="footer">
-        <div><p>📞 (85) 9 9853-2888</p></div>
-        <div><p>🌐 https://www.instagram.com/cloudgraficarapida/</p></div>
-        <div><p>✉️ cloudgraficarapida1@gmail.com</p></div>
-        <div><p>📍 Rua Luis Gonzaga dos Santos, 555 - Pajuçara, Maracanaú/CE - CEP: 61932-600</p></div>
+        <div><p>📞 {{ empresa.whatsapp }}</p></div>
+        <div><p>🌐 {{ empresa.site }}</p></div>
+        <div><p>✉️ {{ empresa.email }}</p></div>
+        <div><p>📍 {{ empresa.endereco }}, {{ empresa.numero }} - {{ empresa.bairro }}, {{ empresa.cidade }}/{{ empresa.estado }}</p></div>
     </div>
 </body>
 </html>
