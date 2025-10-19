@@ -14,11 +14,12 @@ from weasyprint import HTML, CSS
 from django.shortcuts import get_object_or_404
 
 from .models import (
-    Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento
+    Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Empresa
 )
 from .serializers import (
     ClienteSerializer, ProdutoSerializer, OrcamentoSerializer,
-    ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, DespesaSerializer
+    ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, 
+    DespesaSerializer, EmpresaSerializer
 )
 
 
@@ -375,3 +376,24 @@ class PedidoPDFView(APIView):
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="pedido_os_{pk}.pdf"'
         return response
+    
+
+class EmpresaSettingsView(APIView):
+    """
+    View para buscar e atualizar as configurações da empresa (Singleton).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Tenta pegar a primeira (e única) instância, ou cria uma se não existir
+        empresa, created = Empresa.objects.get_or_create(pk=1)
+        serializer = EmpresaSerializer(empresa)
+        return Response(serializer.data)
+
+    def put(self, request, *args, **kwargs):
+        empresa, created = Empresa.objects.get_or_create(pk=1)
+        serializer = EmpresaSerializer(empresa, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

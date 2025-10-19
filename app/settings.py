@@ -157,3 +157,6 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60), # Duração do token de acesso
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),    # Duração do token de atualização
 }
+# Configurações de mídia
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

@@ -229,3 +229,39 @@ class Pagamento(models.Model):
 
     def __str__(self):
         return f'Pagamento de R$ {self.valor} ({self.get_forma_pagamento_display()}) para o Pedido #{self.pedido.id}'
+    
+
+class Empresa(models.Model):
+    # Dados Pessoais / Jurídicos
+    nome_empresa = models.CharField(max_length=200, default="Gráfica Cloud Design")
+    razao_social = models.CharField(max_length=200, blank=True, null=True)
+    cnpj = models.CharField(max_length=18, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    whatsapp = models.CharField(max_length=20, blank=True, null=True)
+    instagram = models.CharField(max_length=100, blank=True, null=True)
+    site = models.URLField(max_length=255, blank=True, null=True)
+
+    # Endereço
+    cep = models.CharField(max_length=10, blank=True, null=True)
+    endereco = models.CharField(max_length=255, blank=True, null=True)
+    numero = models.CharField(max_length=20, blank=True, null=True)
+    bairro = models.CharField(max_length=100, blank=True, null=True)
+    complemento = models.CharField(max_length=100, blank=True, null=True)
+    cidade = models.CharField(max_length=100, blank=True, null=True)
+    estado = models.CharField(max_length=2, blank=True, null=True)
+
+    # Logos (ImageField armazena o caminho do arquivo)
+    logo_grande_dashboard = models.ImageField(upload_to='logos/', blank=True, null=True)
+    logo_pequena_dashboard = models.ImageField(upload_to='logos/', blank=True, null=True)
+    logo_orcamento_pdf = models.ImageField(upload_to='logos/', blank=True, null=True)
+
+    def __str__(self):
+        return self.nome_empresa or "Configurações da Empresa"
+
+    def save(self, *args, **kwargs):
+        # Garante que só exista uma instância deste modelo
+        self.pk = 1
+        super(Empresa, self).save(*args, **kwargs)
+
+    class Meta:
+        verbose_name_plural = "Empresa"

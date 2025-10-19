@@ -1,6 +1,6 @@
 from rest_framework import serializers
 # Importe os novos modelos
-from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa
+from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa, Empresa
 from django.db.models import Sum
 
 class ClienteSerializer(serializers.ModelSerializer):
@@ -204,3 +204,9 @@ class DespesaConsolidadaSerializer(serializers.Serializer):
     data = serializers.DateField()
     categoria = serializers.CharField(allow_null=True)
     tipo = serializers.CharField()
+
+
+class EmpresaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Empresa
+        fields = '__all__' # Inclui todos os campos do modelo
