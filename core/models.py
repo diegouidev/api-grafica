@@ -107,9 +107,8 @@ class ItemOrcamento(models.Model):
         if not self.subtotal:
             if self.produto.tipo_precificacao == 'M2':
                 if not self.largura or not self.altura:
-                    self.subtotal = 0 
-                else:
-                    self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
+                    raise ValueError("Largura e Altura são obrigatórias para produtos por m²")
+                self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
             else: # 'UNICO'
                 self.subtotal = self.produto.preco * self.quantidade
         super().save(*args, **kwargs)
@@ -178,12 +177,12 @@ class ItemPedido(models.Model):
         if not self.subtotal:
             if self.produto.tipo_precificacao == 'M2':
                 if not self.largura or not self.altura:
-                    raise ValueError("Largura e Altura são obrigatórias para produtos por m²")
-                self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
+                    self.subtotal = 0 
+                else:
+                    self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
             else: # 'UNICO'
                 self.subtotal = self.produto.preco * self.quantidade
         super().save(*args, **kwargs)
-
     class Meta:
         verbose_name = "Item de Pedido"
         verbose_name_plural = "Itens de Pedidos"
