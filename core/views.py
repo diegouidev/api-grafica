@@ -19,8 +19,9 @@ from .models import (
 from .serializers import (
     ClienteSerializer, ProdutoSerializer, OrcamentoSerializer,
     ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, 
-    DespesaSerializer, EmpresaSerializer
+    DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer
 )
+from django.contrib.auth.models import User
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
@@ -410,4 +411,45 @@ class EmpresaSettingsView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class UserProfileView(APIView):
+    """
+    View para o usuário logado ver e atualizar seu próprio perfil.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # 'request.user' é o usuário logado (graças ao token)
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    def put(self, request, *args, **kwargs):
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ChangePasswordView(APIView):
+    """
+    View para o usuário logado alterar sua senha.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            old_password = serializer.validated_data['old_password']
+            new_password = serializer.validated_data['new_password']
+
+            if not user.check_password(old_password):
+                return Response({"old_password": ["Senha antiga está incorreta."]}, status=status.HTTP_400_BAD_REQUEST)
+            
+            user.set_password(new_password)
+            user.save()
+            return Response({"status": "senha alterada com sucesso"}, status=status.HTTP_200_OK)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

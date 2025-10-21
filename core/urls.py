@@ -5,7 +5,7 @@ from .views import (
     ClienteViewSet, ProdutoViewSet, OrcamentoViewSet, ItemOrcamentoViewSet,
     PedidoViewSet, ItemPedidoViewSet, DashboardStatsView, PagamentoViewSet, 
     DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView, 
-    RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView
+    RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView, UserProfileView, ChangePasswordView
 )
 
 router = DefaultRouter()
@@ -29,4 +29,6 @@ urlpatterns = [
     path('orcamentos/<int:pk>/pdf/', OrcamentoPDFView.as_view(), name='orcamento-pdf'),
     path('pedidos/<int:pk>/pdf/', PedidoPDFView.as_view(), name='pedido-pdf'),
     path('empresa-settings/', EmpresaSettingsView.as_view(), name='empresa-settings'),
+    path('profile/', UserProfileView.as_view(), name='user-profile'),
+    path('profile/change-password/', ChangePasswordView.as_view(), name='change-password'),
 ]

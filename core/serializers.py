@@ -2,6 +2,20 @@ from rest_framework import serializers
 # Importe os novos modelos
 from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa, Empresa
 from django.db.models import Sum
+from django.contrib.auth.models import User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """ Serializer para ler e atualizar dados do usuário. """
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        read_only_fields = ['id', 'username'] # O username (login) não pode ser mudado
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """ Serializer para o usuário mudar a própria senha. """
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True)
 
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
