@@ -5,7 +5,8 @@ from .views import (
     ClienteViewSet, ProdutoViewSet, OrcamentoViewSet, ItemOrcamentoViewSet,
     PedidoViewSet, ItemPedidoViewSet, DashboardStatsView, PagamentoViewSet, 
     DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView, 
-    RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView, UserProfileView, ChangePasswordView
+    RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView, UserProfileView, 
+    ChangePasswordView, EmpresaPublicaView
 )
 
 router = DefaultRouter()
@@ -21,6 +22,7 @@ router.register(r'despesas-gerais', DespesaViewSet, basename='despesa')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('public/empresa/', EmpresaPublicaView.as_view(), name='empresa-publica'),
     path('dashboard-stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
     path('despesas/', DespesaConsolidadaView.as_view(), name='despesa-consolidada'),
     path('vendas-recentes/', VendasRecentesView.as_view(), name='vendas-recentes'),

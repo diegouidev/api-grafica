@@ -226,3 +226,13 @@ class EmpresaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empresa
         fields = '__all__' # Inclui todos os campos do modelo
+
+
+# --- SERIALIZER DE EMPRESA (PÚBLICO) ---
+class EmpresaPublicaSerializer(serializers.ModelSerializer):
+    """
+    Serializer que expõe apenas os dados públicos da empresa para a tela de login.
+    """
+    class Meta:
+        model = Empresa
+        fields = ['nome_empresa', 'logo_grande_dashboard']

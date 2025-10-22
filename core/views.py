@@ -12,6 +12,7 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from weasyprint import HTML, CSS
 from django.shortcuts import get_object_or_404
+from rest_framework.permissions import AllowAny
 
 from .models import (
     Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Empresa
@@ -19,7 +20,7 @@ from .models import (
 from .serializers import (
     ClienteSerializer, ProdutoSerializer, OrcamentoSerializer,
     ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, 
-    DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer
+    DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer, EmpresaPublicaSerializer
 )
 from django.contrib.auth.models import User
 
@@ -453,3 +454,16 @@ class ChangePasswordView(APIView):
             return Response({"status": "senha alterada com sucesso"}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class EmpresaPublicaView(APIView):
+    """
+    View PÚBLICA (sem autenticação) para buscar dados básicos da empresa,
+    como a logo para a tela de login.
+    """
+    permission_classes = [AllowAny] # Permite o acesso sem token
+
+    def get(self, request, *args, **kwargs):
+        empresa, created = Empresa.objects.get_or_create(pk=1)
+        serializer = EmpresaPublicaSerializer(empresa)
+        return Response(serializer.data)
