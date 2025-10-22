@@ -6,7 +6,7 @@ from .views import (
     PedidoViewSet, ItemPedidoViewSet, DashboardStatsView, PagamentoViewSet, 
     DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView, 
     RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView, UserProfileView, 
-    ChangePasswordView, EmpresaPublicaView
+    ChangePasswordView, EmpresaPublicaView, EvolucaoVendasView, PedidosPorStatusView
 )
 
 router = DefaultRouter()
@@ -33,4 +33,6 @@ urlpatterns = [
     path('empresa-settings/', EmpresaSettingsView.as_view(), name='empresa-settings'),
     path('profile/', UserProfileView.as_view(), name='user-profile'),
     path('profile/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('relatorios/evolucao-vendas/', EvolucaoVendasView.as_view(), name='evolucao-vendas'),
+    path('relatorios/pedidos-por-status/', PedidosPorStatusView.as_view(), name='pedidos-por-status'),
 ]

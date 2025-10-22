@@ -23,6 +23,9 @@ from .serializers import (
     DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer, EmpresaPublicaSerializer
 )
 from django.contrib.auth.models import User
+from django.utils.timezone import now
+from django.db.models.functions import TruncMonth
+from django.db.models import Count
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
@@ -467,3 +470,47 @@ class EmpresaPublicaView(APIView):
         empresa, created = Empresa.objects.get_or_create(pk=1)
         serializer = EmpresaPublicaSerializer(empresa)
         return Response(serializer.data)
+    
+
+class EvolucaoVendasView(APIView):
+    """
+    Retorna a receita dos últimos 6 meses para o gráfico de evolução.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        seis_meses_atras = now().date().replace(day=1) - datetime.timedelta(days=30*5)
+        
+        vendas = Pedido.objects.filter(
+            data_criacao__gte=seis_meses_atras,
+            status_pagamento='PAGO'
+        ).annotate(
+            mes=TruncMonth('data_criacao') # Agrupa por mês
+        ).values('mes').annotate(
+            total=Sum('valor_total') # Soma o total para cada mês
+        ).order_by('mes')
+        
+        # Formata os dados para o gráfico
+        data_formatada = [
+            {"name": item['mes'].strftime('%b/%y'), "Receita": item['total']}
+            for item in vendas
+        ]
+        return Response(data_formatada)
+
+class PedidosPorStatusView(APIView):
+    """
+    Retorna a contagem de pedidos agrupados por status de produção.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        status_counts = Pedido.objects.values('status_producao').annotate(
+            value=Count('id')
+        ).order_by('-value') # Ordena pelos status mais comuns
+        
+        # Renomeia a chave para o gráfico
+        data_formatada = [
+            {"name": item['status_producao'], "value": item['value']}
+            for item in status_counts
+        ]
+        return Response(data_formatada)
