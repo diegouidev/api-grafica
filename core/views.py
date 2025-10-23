@@ -514,3 +514,55 @@ class PedidosPorStatusView(APIView):
             for item in status_counts
         ]
         return Response(data_formatada)
+    
+
+class ProdutosMaisVendidosView(APIView):
+    """
+    Retorna os 5 produtos mais vendidos (em quantidade) do mês atual.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        today = datetime.date.today()
+        start_of_month = today.replace(day=1)
+
+        # Agrupa os itens de PEDIDOS por produto, soma as quantidades
+        # e ordena pela maior quantidade
+        produtos = ItemPedido.objects.filter(pedido__data_criacao__gte=start_of_month)\
+            .values('produto__nome')\
+            .annotate(total_vendido=Sum('quantidade'))\
+            .order_by('-total_vendido')[:5] # Pega os Top 5
+
+        # Formata os dados para o gráfico de barras
+        data_formatada = [
+            {"name": item['produto__nome'], "value": item['total_vendido']}
+            for item in produtos
+        ]
+        return Response(data_formatada)
+
+class ClientesMaisAtivosView(APIView):
+    """
+    Retorna os 5 clientes que mais geraram faturamento (valor total em pedidos).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Agrupa os PEDIDOS por cliente, soma o valor total de cada cliente
+        # e ordena pelo maior valor
+        clientes = Pedido.objects.values('cliente__nome')\
+            .annotate(
+                total_gasto=Sum('valor_total'),
+                total_pedidos=Count('id')
+            )\
+            .order_by('-total_gasto')[:5] # Pega os Top 5
+
+        # Formata os dados para a lista
+        data_formatada = [
+            {
+                "name": item['cliente__nome'],
+                "total_pedidos": item['total_pedidos'],
+                "total_gasto": item['total_gasto']
+            }
+            for item in clientes
+        ]
+        return Response(data_formatada)
