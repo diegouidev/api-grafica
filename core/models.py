@@ -1,5 +1,3 @@
-# Em seu_app/models.py
-
 from django.db import models
 from django.utils import timezone
 from django.db.models import Sum
@@ -8,9 +6,8 @@ from django.db.models import Sum
 # Modelos de Entidades Base
 # ----------------------------
 
-# backend/core/models.py
 class Cliente(models.Model):
-    nome = models.CharField(max_length=200) # Pode ser Nome ou Razão Social
+    nome = models.CharField(max_length=200)  # Pode ser Nome ou Razão Social
     email = models.EmailField(blank=True, null=True)
     telefone = models.CharField(max_length=20, blank=True, null=True)
     cpf_cnpj = models.CharField(max_length=18, blank=True, null=True, default=None)
@@ -24,7 +21,6 @@ class Cliente(models.Model):
     bairro = models.CharField(max_length=100, blank=True, null=True)
     cidade = models.CharField(max_length=100, blank=True, null=True)
     estado = models.CharField(max_length=2, blank=True, null=True)
-    # etc...
 
     def __str__(self):
         return self.nome
@@ -47,7 +43,6 @@ class Produto(models.Model):
         default=TipoPrecificacao.UNICO,
         help_text="Define como o preço do produto é calculado"
     )
-    # O valor deste campo será interpretado de acordo com o 'tipo_precificacao'.
     preco = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -67,22 +62,17 @@ class Produto(models.Model):
 # -------------------------------------
 
 class Orcamento(models.Model):
-    # ... (campos existentes) ...
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="orcamentos")
-    data_criacao = models.DateTimeField(auto_now_add=True)
+    data_criacao = models.DateTimeField(default=timezone.now)
     valor_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=50, default='Em Aberto', help_text="Ex: Em Aberto, Aprovado, Rejeitado")
-    data_criacao = models.DateTimeField(default=timezone.now)
 
-    # --- Adicione o método abaixo ---
     def recalcular_total(self):
-        # Soma o subtotal de todos os itens relacionados a este orçamento
         total = self.itens.all().aggregate(
             total_calculado=models.Sum('subtotal')
         )['total_calculado']
-        
         self.valor_total = total if total is not None else 0
-        self.save()
+        self.save(update_fields=['valor_total'])
 
     def __str__(self):
         return f'Orçamento #{self.id} - {self.cliente.nome}'
@@ -91,30 +81,60 @@ class Orcamento(models.Model):
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
 
+    # >>> NOVO: helper para gerar pedido a partir do orçamento
+    def gerar_pedido(self):
+        """
+        Cria um Pedido com base neste orçamento, copiando os itens
+        (incluindo descricao_customizada e subtotal).
+        Retorna o Pedido criado.
+        """
+        pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            orcamento_origem=self,
+            valor_total=0,  # recalculado abaixo
+            status_producao='Aguardando',
+            status_pagamento=Pedido.StatusPagamento.PENDENTE,
+            data_criacao=timezone.now()
+        )
+        # Copia os itens do orçamento
+        itens_orc = list(self.itens.all())
+        for io in itens_orc:
+            ItemPedido.objects.create(
+                pedido=pedido,
+                produto=io.produto if io.produto_id else None,  # ✅ segurança extra
+                quantidade=io.quantidade,
+                largura=io.largura,
+                altura=io.altura,
+                descricao_customizada=io.descricao_customizada,
+                subtotal=io.subtotal
+            )
+        pedido.recalcular_total()
+        return pedido
+
 
 class ItemOrcamento(models.Model):
-    # ... (campos existentes) ...
     orcamento = models.ForeignKey(Orcamento, on_delete=models.CASCADE, related_name='itens')
-    produto = models.ForeignKey(Produto, on_delete=models.PROTECT)
+    produto = models.ForeignKey(Produto, on_delete=models.PROTECT, null=True, blank=True)
     quantidade = models.PositiveIntegerField(default=1)
     largura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     altura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     descricao_customizada = models.CharField(max_length=255, blank=True, null=True)
 
-    # --- Adicione o método save abaixo ---
     def save(self, *args, **kwargs):
+        # Calcula subtotal se não informado
         if not self.subtotal:
             if self.produto.tipo_precificacao == 'M2':
                 if not self.largura or not self.altura:
                     raise ValueError("Largura e Altura são obrigatórias para produtos por m²")
                 self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
-            else: # 'UNICO'
+            else:  # 'UNICO'
                 self.subtotal = self.produto.preco * self.quantidade
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.quantidade}x {self.produto.nome} (Orçamento #{self.orcamento.id})'
+        base = self.descricao_customizada or self.produto.nome
+        return f'{self.quantidade}x {base} (Orçamento #{self.orcamento.id})'
 
     class Meta:
         verbose_name = "Item de Orçamento"
@@ -130,11 +150,10 @@ class Pedido(models.Model):
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="pedidos")
     orcamento_origem = models.OneToOneField(Orcamento, on_delete=models.SET_NULL, null=True, blank=True)
-    data_criacao = models.DateTimeField(auto_now_add=True)
-    valor_total = models.DecimalField(max_digits=10, decimal_places=2)
+    data_criacao = models.DateTimeField(default=timezone.now)
+    valor_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status_producao = models.CharField(max_length=50, default='Aguardando', help_text="Ex: Aguardando Arte, Em Produção, Finalizado")
     status_pagamento = models.CharField(max_length=10, choices=StatusPagamento.choices, default=StatusPagamento.PENDENTE)
-    data_criacao = models.DateTimeField(default=timezone.now)
     previsto_entrega = models.DateField(blank=True, null=True)
     custo_producao = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     data_producao = models.DateField(blank=True, null=True)
@@ -146,6 +165,7 @@ class Pedido(models.Model):
         return f'Pedido #{self.id} - {self.cliente.nome}'
     
     def recalcular_total(self):
+        # Recalcula cada item conforme tipo de precificação
         for item in self.itens.all():
             item.save()
         total = self.itens.aggregate(total_calculado=Sum('subtotal'))['total_calculado']
@@ -160,29 +180,33 @@ class Pedido(models.Model):
 class ItemPedido(models.Model):
     """Representa um item de produto dentro de um pedido."""
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='itens')
-    produto = models.ForeignKey(Produto, on_delete=models.PROTECT)
+    produto = models.ForeignKey(Produto, on_delete=models.PROTECT, null=True, blank=True)  # ✅ Agora opcional
     quantidade = models.PositiveIntegerField(default=1)
-    
-    # Campos para produtos m². Nulos se o produto for de preço único.
     largura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     altura = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     descricao_customizada = models.CharField(max_length=255, blank=True, null=True)
-    
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):
-        return f'{self.quantidade}x {self.produto.nome} (Pedido #{self.pedido.id})'
+        base = self.descricao_customizada or (self.produto.nome if self.produto else "Item Manual")
+        return f'{self.quantidade}x {base} (Pedido #{self.pedido.id})'
     
     def save(self, *args, **kwargs):
+        # Calcula subtotal apenas se não informado
         if not self.subtotal:
-            if self.produto.tipo_precificacao == 'M2':
-                if not self.largura or not self.altura:
-                    self.subtotal = 0 
-                else:
-                    self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
-            else: # 'UNICO'
-                self.subtotal = self.produto.preco * self.quantidade
+            if self.produto:
+                if self.produto.tipo_precificacao == 'M2':
+                    if not self.largura or not self.altura:
+                        self.subtotal = 0
+                    else:
+                        self.subtotal = self.produto.preco * self.largura * self.altura * self.quantidade
+                else:  # 'UNICO'
+                    self.subtotal = self.produto.preco * self.quantidade
+            else:
+                # Item manual sem produto vinculado
+                self.subtotal = 0
         super().save(*args, **kwargs)
+
     class Meta:
         verbose_name = "Item de Pedido"
         verbose_name_plural = "Itens de Pedidos"
@@ -217,19 +241,13 @@ class Pagamento(models.Model):
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='pagamentos')
     valor = models.DecimalField(max_digits=10, decimal_places=2)
     data = models.DateTimeField(default=timezone.now)
-    # O campo agora usa as opções que definimos
-    forma_pagamento = models.CharField(
-        max_length=50,
-        choices=FormaPagamento.choices,
-        default=FormaPagamento.PIX
-    )
+    forma_pagamento = models.CharField(max_length=50, choices=FormaPagamento.choices, default=FormaPagamento.PIX)
 
     def __str__(self):
         return f'Pagamento de R$ {self.valor} ({self.get_forma_pagamento_display()}) para o Pedido #{self.pedido.id}'
     
 
 class Empresa(models.Model):
-    # Dados Pessoais / Jurídicos
     nome_empresa = models.CharField(max_length=200, default="Gráfica Cloud Design")
     razao_social = models.CharField(max_length=200, blank=True, null=True)
     cnpj = models.CharField(max_length=18, blank=True, null=True)
@@ -238,7 +256,6 @@ class Empresa(models.Model):
     instagram = models.CharField(max_length=100, blank=True, null=True)
     site = models.URLField(max_length=255, blank=True, null=True)
 
-    # Endereço
     cep = models.CharField(max_length=10, blank=True, null=True)
     endereco = models.CharField(max_length=255, blank=True, null=True)
     numero = models.CharField(max_length=20, blank=True, null=True)
@@ -247,7 +264,6 @@ class Empresa(models.Model):
     cidade = models.CharField(max_length=100, blank=True, null=True)
     estado = models.CharField(max_length=2, blank=True, null=True)
 
-    # Logos (ImageField armazena o caminho do arquivo)
     logo_grande_dashboard = models.ImageField(upload_to='logos/', blank=True, null=True)
     logo_pequena_dashboard = models.ImageField(upload_to='logos/', blank=True, null=True)
     logo_orcamento_pdf = models.ImageField(upload_to='logos/', blank=True, null=True)
@@ -256,7 +272,6 @@ class Empresa(models.Model):
         return self.nome_empresa or "Configurações da Empresa"
 
     def save(self, *args, **kwargs):
-        # Garante que só exista uma instância deste modelo
         self.pk = 1
         super(Empresa, self).save(*args, **kwargs)
 

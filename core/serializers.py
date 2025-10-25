@@ -1,19 +1,15 @@
 from rest_framework import serializers
-# Importe os novos modelos
-from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa, Empresa
 from django.db.models import Sum
 from django.contrib.auth.models import User
-
+from .models import Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Despesa, Empresa
 
 class UserSerializer(serializers.ModelSerializer):
-    """ Serializer para ler e atualizar dados do usuário. """
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name']
-        read_only_fields = ['id', 'username'] # O username (login) não pode ser mudado
+        read_only_fields = ['id', 'username']
 
 class ChangePasswordSerializer(serializers.Serializer):
-    """ Serializer para o usuário mudar a própria senha. """
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True)
 
@@ -21,32 +17,20 @@ class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
         fields = [
-            'id', 'nome', 'email', 'telefone', 'cpf_cnpj', 
+            'id', 'nome', 'email', 'telefone', 'cpf_cnpj',
             'observacao', 'cep', 'endereco', 'numero', 'bairro', 'cidade', 'estado',
             'data_cadastro'
         ]
         read_only_fields = ['data_cadastro']
 
     def validate_cpf_cnpj(self, value):
-        """
-        Verifica se o CPF/CNPJ já existe no banco de dados,
-        ignorando o próprio objeto em caso de atualização.
-        """
-        # Se o valor for vazio ou nulo, não fazemos a validação
         if not value:
             return value
-
-        # Checa se existe outro cliente com o mesmo cpf_cnpj
         query = Cliente.objects.filter(cpf_cnpj=value)
-
-        # Se estivermos atualizando um cliente (self.instance existe),
-        # excluímos o próprio cliente da busca para permitir salvar sem alterar o cpf_cnpj.
         if self.instance:
             query = query.exclude(pk=self.instance.pk)
-
         if query.exists():
             raise serializers.ValidationError("Já existe um cliente cadastrado com este CPF/CNPJ.")
-
         return value
 
 class ProdutoSerializer(serializers.ModelSerializer):
@@ -54,25 +38,22 @@ class ProdutoSerializer(serializers.ModelSerializer):
         model = Produto
         fields = ['id', 'nome', 'tipo_precificacao', 'preco']
 
-
 class ProdutoResumidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Produto
         fields = ['id', 'nome']
 
-
+# ---------- ITENS DE ORÇAMENTO ----------
 class ItemOrcamentoSerializer(serializers.ModelSerializer):
-
     produto = ProdutoResumidoSerializer(read_only=True)
+    nome_exibido = serializers.SerializerMethodField()
+
     class Meta:
         model = ItemOrcamento
-        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'subtotal']
+        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal', 'nome_exibido']
 
-
-class ClienteResumidoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Cliente
-        fields = ['id', 'nome']
+    def get_nome_exibido(self, obj):
+        return obj.descricao_customizada or (obj.produto.nome if obj.produto else 'Item')
 
 class ItemOrcamentoWriteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -80,58 +61,63 @@ class ItemOrcamentoWriteSerializer(serializers.ModelSerializer):
         fields = ['produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal']
         extra_kwargs = {'subtotal': {'required': False}}
 
+    produto = serializers.PrimaryKeyRelatedField(
+        queryset=Produto.objects.all(),
+        required=False,
+        allow_null=True   
+    )
+
+# ---------- ORÇAMENTO ----------
+class ClienteResumidoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cliente
+        fields = ['id', 'nome']
+
 class OrcamentoSerializer(serializers.ModelSerializer):
     cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemOrcamentoSerializer(many=True, read_only=True)
-    
+
     itens_write = ItemOrcamentoWriteSerializer(many=True, write_only=True, source='itens', required=False)
-    cliente_id = serializers.PrimaryKeyRelatedField(
-        queryset=Cliente.objects.all(), source='cliente', write_only=True
-    )
+    cliente_id = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all(), source='cliente', write_only=True)
 
     class Meta:
         model = Orcamento
-        fields = [
-            'id', 'cliente', 'data_criacao', 'valor_total', 'status', 'itens',
-            'cliente_id', 'itens_write'
-        ]
-        read_only_fields = ['valor_total']
-    
+        fields = ['id', 'cliente', 'data_criacao', 'valor_total', 'status', 'itens', 'cliente_id', 'itens_write']
+        read_only_fields = ['valor_total', 'data_criacao']
+
     def create(self, validated_data):
-        itens_data = validated_data.pop('itens')
+        itens_data = validated_data.pop('itens', [])
         orcamento = Orcamento.objects.create(**validated_data)
-        for item_data in itens_data:
-            ItemOrcamento.objects.create(orcamento=orcamento, **item_data)
+        for item in itens_data:
+            ItemOrcamento.objects.create(orcamento=orcamento, **item)
         orcamento.recalcular_total()
         return orcamento
 
-    # --- A NOVA LÓGICA ESTÁ AQUI ---
     def update(self, instance, validated_data):
         itens_data = validated_data.pop('itens', None)
-
-        # Atualiza os campos simples do Orçamento
-        instance.status = validated_data.get('status', instance.status)
-        if 'cliente' in validated_data:
-            instance.cliente = validated_data.get('cliente', instance.cliente)
+        # campos simples
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
-
-        # Se o front-end enviou uma nova lista de itens, apaga os antigos e recria
+        # substitui itens
         if itens_data is not None:
             instance.itens.all().delete()
-            for item_data in itens_data:
-                ItemOrcamento.objects.create(orcamento=instance, **item_data)
-        
-        # Sempre recalcula o total ao final da atualização
+            for item in itens_data:
+                ItemOrcamento.objects.create(orcamento=instance, **item)
         instance.recalcular_total()
-
         return instance
-    
 
+# ---------- ITENS DE PEDIDO ----------
 class ItemPedidoSerializer(serializers.ModelSerializer):
     produto = ProdutoResumidoSerializer(read_only=True)
+    nome_exibido = serializers.SerializerMethodField()
+
     class Meta:
         model = ItemPedido
-        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'subtotal']
+        fields = ['id', 'produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal', 'nome_exibido']
+
+    def get_nome_exibido(self, obj):
+        return obj.descricao_customizada or (obj.produto.nome if obj.produto else 'Item')
 
 class ItemPedidoWriteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -139,23 +125,22 @@ class ItemPedidoWriteSerializer(serializers.ModelSerializer):
         fields = ['produto', 'quantidade', 'largura', 'altura', 'descricao_customizada', 'subtotal']
         extra_kwargs = {'subtotal': {'required': False}}
 
-
+# ---------- PAGAMENTO ----------
 class PagamentoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pagamento
         fields = ['id', 'pedido', 'valor', 'data', 'forma_pagamento']
 
+# ---------- PEDIDO ----------
 class PedidoSerializer(serializers.ModelSerializer):
     cliente = ClienteResumidoSerializer(read_only=True)
     itens = ItemPedidoSerializer(many=True, read_only=True)
     pagamentos = PagamentoSerializer(many=True, read_only=True)
     valor_pago = serializers.SerializerMethodField()
     valor_a_receber = serializers.SerializerMethodField()
-    
+
     itens_write = ItemPedidoWriteSerializer(many=True, write_only=True, source='itens', required=False)
-    cliente_id = serializers.PrimaryKeyRelatedField(
-        queryset=Cliente.objects.all(), source='cliente', write_only=True, required=False
-    )
+    cliente_id = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all(), source='cliente', write_only=True, required=False)
 
     class Meta:
         model = Pedido
@@ -165,7 +150,7 @@ class PedidoSerializer(serializers.ModelSerializer):
             'previsto_entrega', 'data_producao', 'forma_envio', 'codigo_rastreio', 'link_fornecedor',
             'itens_write', 'cliente_id'
         ]
-        read_only_fields = ['valor_total']
+        read_only_fields = ['valor_total', 'data_criacao', 'orcamento_origem']
 
     def get_valor_pago(self, obj):
         total_pago = obj.pagamentos.aggregate(total=Sum('valor'))['total']
@@ -173,47 +158,42 @@ class PedidoSerializer(serializers.ModelSerializer):
 
     def get_valor_a_receber(self, obj):
         valor_pago = self.get_valor_pago(obj)
-        return obj.valor_total - valor_pago
-    
-    # --- MÉTODO UPDATE CORRIGIDO E FINAL ---
-    def update(self, instance, validated_data):
-        """
-        Método customizado que atualiza o Pedido e seus Itens.
-        """
-        itens_data = validated_data.pop('itens', None)
+        return (obj.valor_total or 0) - (valor_pago or 0)
 
-        # Atualiza todos os campos simples do Pedido (status, custo, etc.)
-        # Esta abordagem é robusta e escala automaticamente com novos campos.
+    def create(self, validated_data):
+        itens_data = validated_data.pop('itens', [])
+        pedido = Pedido.objects.create(**validated_data)
+        for item in itens_data:
+            ItemPedido.objects.create(pedido=pedido, **item)
+        pedido.recalcular_total()
+        return pedido
+
+    def update(self, instance, validated_data):
+        itens_data = validated_data.pop('itens', None)
+        # atualiza campos simples
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Se o front-end enviou uma nova lista de itens...
+        # substitui itens se enviados
         if itens_data is not None:
-            instance.itens.all().delete() # Apaga os itens antigos
-            for item_data in itens_data:
-                ItemPedido.objects.create(pedido=instance, **item_data) # Recria com os novos
-        
-        # Sempre recalcula o valor total ao final, garantindo consistência
+            instance.itens.all().delete()
+            for item in itens_data:
+                # >>> AQUI GARANTIMOS QUE A DESCRIÇÃO CUSTOMIZADA DO ORÇAMENTO É MANTIDA
+                ItemPedido.objects.create(pedido=instance, **item)
+
         instance.recalcular_total()
-
         return instance
-    
 
+
+# ---------- DESPESAS ----------
 class DespesaSerializer(serializers.ModelSerializer):
-    """
-    Serializer para o modelo de Despesas Gerais.
-    """
     class Meta:
         model = Despesa
         fields = ['id', 'descricao', 'valor', 'data', 'categoria']
 
 
 class DespesaConsolidadaSerializer(serializers.Serializer):
-    """
-    Este é um serializer que não está ligado a um modelo.
-    Ele apenas define a estrutura dos dados que nossa view customizada irá retornar.
-    """
     id = serializers.CharField(read_only=True)
     descricao = serializers.CharField()
     valor = serializers.DecimalField(max_digits=10, decimal_places=2)
@@ -225,14 +205,10 @@ class DespesaConsolidadaSerializer(serializers.Serializer):
 class EmpresaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empresa
-        fields = '__all__' # Inclui todos os campos do modelo
+        fields = '__all__'
 
 
-# --- SERIALIZER DE EMPRESA (PÚBLICO) ---
 class EmpresaPublicaSerializer(serializers.ModelSerializer):
-    """
-    Serializer que expõe apenas os dados públicos da empresa para a tela de login.
-    """
     class Meta:
         model = Empresa
         fields = ['nome_empresa', 'logo_grande_dashboard']

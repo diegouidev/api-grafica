@@ -51,7 +51,7 @@
         <div>
             <h3>DADOS DO CLIENTE</h3>
             <p><strong>Nome:</strong> {{ orcamento.cliente.nome }}</p>
-            <p><strong>Whatsapp:</strong> {{ orcamento.cliente.telefone }}</p>
+            <p><strong>Whatsapp:</strong> {{ orcamento.cliente.telefone|default:"" }}</p>
         </div>
         <div>
             <h3>DETALHES DO ORÇAMENTO</h3>
@@ -72,8 +72,20 @@
         <tbody>
             {% for item in itens %}
             <tr>
-                <td>{{ item.produto.nome }}</td>
-                <td>R$ {{ item.valor_unitario|floatformat:2 }}</td>
+                <td>
+                    {% if item.produto %}
+                        {{ item.produto.nome }}
+                    {% else %}
+                        {{ item.descricao_customizada }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.valor_unitario %}
+                        R$ {{ item.valor_unitario|floatformat:2 }}
+                    {% else %}
+                        R$ {{ item.subtotal|floatformat:2 }}
+                    {% endif %}
+                </td>
                 <td>{{ item.quantidade }}</td>
                 <td>R$ {{ item.subtotal|floatformat:2 }}</td>
             </tr>
@@ -83,9 +95,18 @@
     
     <div class="summary">
         <table>
-            <tr><td>Subtotal:</td><td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td></tr>
-            <tr><td>Frete:</td><td style="text-align: right;">R$ 0,00</td></tr>
-            <tr class="total-row"><td>Total:</td><td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td></tr>
+            <tr>
+                <td>Subtotal:</td>
+                <td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <td>Frete:</td>
+                <td style="text-align: right;">R$ 0,00</td>
+            </tr>
+            <tr class="total-row">
+                <td>Total:</td>
+                <td style="text-align: right;">R$ {{ orcamento.valor_total|floatformat:2 }}</td>
+            </tr>
         </table>
     </div>
     
@@ -95,10 +116,10 @@
     </div>
 
     <div class="footer">
-        <div><p>📞 {{ empresa.whatsapp }}</p></div>
-        <div><p>🌐 {{ empresa.site }}</p></div>
-        <div><p>✉️ {{ empresa.email }}</p></div>
-        <div><p>📍 {{ empresa.endereco }}, {{ empresa.numero }} - {{ empresa.bairro }}, {{ empresa.cidade }}/{{ empresa.estado }}</p></div>
+        <div><p>📞 {{ empresa.whatsapp|default:"" }}</p></div>
+        <div><p>🌐 {{ empresa.site|default:"" }}</p></div>
+        <div><p>✉️ {{ empresa.email|default:"" }}</p></div>
+        <div><p>📍 {{ empresa.endereco|default:"" }}, {{ empresa.numero|default:"" }} - {{ empresa.bairro|default:"" }}, {{ empresa.cidade|default:"" }}/{{ empresa.estado|default:"" }}</p></div>
     </div>
 </body>
 </html>

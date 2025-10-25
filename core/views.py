@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, Q, Value, CharField
 from .models import Pedido, Despesa
+from django.db import transaction
 import datetime
 from django.http import HttpResponse
 from django.template.loader import render_to_string
@@ -62,59 +63,95 @@ class OrcamentoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Este método agora retorna uma lista de orçamentos, excluindo
-        aqueles que já foram aprovados.
+        Retorna os orçamentos mais recentes, excluindo os já aprovados.
         """
-        # A MÁGICA ACONTECE AQUI:
-        # Pegamos todos os orçamentos, ordenamos pelos mais recentes,
-        # e então excluímos todos que tiverem o status 'Aprovado'.
-        return Orcamento.objects.all().order_by('-data_criacao').exclude(status='Aprovado')
+        return (
+            Orcamento.objects
+            .all()
+            .order_by('-data_criacao')
+            .exclude(status='Aprovado')
+        )
 
-    # --- GARANTA QUE ESTE MÉTODO COMPLETO ESTÁ AQUI DENTRO ---
+    # ---------------------------------------------------------
+    # Métodos ajustados para exibir erros de validação no terminal
+    # ---------------------------------------------------------
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("\n❌ ERRO AO CRIAR ORÇAMENTO:")
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            print("\n❌ ERRO AO EDITAR ORÇAMENTO:")
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    # ---------------------------------------------------------
+    # Conversão de orçamento em pedido
+    # ---------------------------------------------------------
     @action(detail=True, methods=['post'], url_path='converter-para-pedido')
     def converter_para_pedido(self, request, pk=None):
         """
-        Ação customizada para criar um Pedido a partir de um Orçamento.
+        Cria um Pedido a partir deste Orçamento, copiando inclusive
+        a descricao_customizada de cada item.
         """
         orcamento = self.get_object()
 
-        # Validação para não converter duas vezes
+        # Evita conversão duplicada: OneToOneField cria o reverse accessor "pedido"
         if hasattr(orcamento, 'pedido'):
             return Response(
                 {'error': 'Este orçamento já foi convertido em um pedido.'},
                 status=status.HTTP_409_CONFLICT
             )
 
-        # Criação do Pedido
-        novo_pedido = Pedido.objects.create(
-            cliente=orcamento.cliente,
-            orcamento_origem=orcamento,
-            valor_total=orcamento.valor_total,
-            status_producao='Aguardando',
-            status_pagamento='PENDENTE'
-        )
-
-        # Copiando os Itens do Orçamento para o Pedido
-        itens_para_criar = [
-            ItemPedido(
-                pedido=novo_pedido,
-                produto=item_orcamento.produto,
-                quantidade=item_orcamento.quantidade,
-                largura=item_orcamento.largura,
-                altura=item_orcamento.altura,
-                subtotal=item_orcamento.subtotal
+        itens_orc = list(orcamento.itens.all())
+        if not itens_orc:
+            return Response(
+                {'error': 'Este orçamento não possui itens para converter.'},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            for item_orcamento in orcamento.itens.all()
-        ]
-        ItemPedido.objects.bulk_create(itens_para_criar)
 
-        # Atualiza o status do orçamento original
-        orcamento.status = 'Aprovado'
-        orcamento.save()
+        with transaction.atomic():
+            novo_pedido = Pedido.objects.create(
+                cliente=orcamento.cliente,
+                orcamento_origem=orcamento,
+                valor_total=0,  # será recalculado depois
+                status_producao='Aguardando',
+                status_pagamento=Pedido.StatusPagamento.PENDENTE,
+            )
 
-        # Retorna os dados do novo pedido criado
-        # (Precisamos do PedidoSerializer para isso)
-        
+            itens_para_criar = []
+            for io in itens_orc:
+                itens_para_criar.append(
+                    ItemPedido(
+                        pedido=novo_pedido,
+                        produto=io.produto,  # pode ser None se for item manual
+                        quantidade=io.quantidade,
+                        largura=io.largura,
+                        altura=io.altura,
+                        descricao_customizada=io.descricao_customizada,
+                        subtotal=io.subtotal,
+                    )
+                )
+
+            ItemPedido.objects.bulk_create(itens_para_criar)
+
+            # Atualiza status do orçamento e recalcula total do pedido
+            orcamento.status = 'Aprovado'
+            orcamento.save(update_fields=['status'])
+
+            if hasattr(novo_pedido, 'recalcular_total'):
+                novo_pedido.recalcular_total()
+
         serializer = PedidoSerializer(novo_pedido)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
