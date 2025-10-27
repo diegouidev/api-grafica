@@ -34,6 +34,28 @@ from django.db.models.functions import TruncMonth
 from django.db.models import Count
 
 
+def get_date_range(request):
+    """
+    Pega 'data_inicio' e 'data_fim' dos parâmetros da URL.
+    Se não forem fornecidos, retorna o mês atual.
+    """
+    today = timezone.now().date()
+    data_inicio_str = request.query_params.get('data_inicio')
+    data_fim_str = request.query_params.get('data_fim')
+
+    if data_inicio_str and data_fim_str:
+        try:
+            data_inicio = datetime.datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
+            data_fim = datetime.datetime.strptime(data_fim_str, '%Y-%m-%d').date()
+            return data_inicio, data_fim
+        except ValueError:
+            pass # Ignora e usa o padrão
+
+    # Padrão: Mês Atual
+    start_of_month = today.replace(day=1)
+    return start_of_month, today
+
+
 class ClienteViewSet(viewsets.ModelViewSet):
     queryset = Cliente.objects.all().order_by('-data_cadastro')
     serializer_class = ClienteSerializer
@@ -199,49 +221,27 @@ class DespesaConsolidadaView(APIView):
 
 
 class DashboardStatsView(APIView):
-    """
-    View para fornecer estatísticas agregadas e dinâmicas para o dashboard.
-    """
     permission_classes = [IsAuthenticated]
-
     def get(self, request, *args, **kwargs):
-        # --- PERÍODO DE ANÁLISE (MÊS ATUAL) ---
-        today = datetime.date.today()
-        start_of_month = today.replace(day=1)
+        data_inicio, data_fim = get_date_range(request)
 
-        # Filtra os pedidos e despesas pelo mês atual
-        pedidos_no_mes = Pedido.objects.filter(data_criacao__gte=start_of_month)
-        despesas_gerais_no_mes = Despesa.objects.filter(data__gte=start_of_month)
+        # Filtra os pedidos e despesas pelo período selecionado
+        pedidos_no_periodo = Pedido.objects.filter(data_criacao__date__range=[data_inicio, data_fim])
+        despesas_gerais_no_periodo = Despesa.objects.filter(data__range=[data_inicio, data_fim])
 
-        # 1. FATURAMENTO: Soma do valor_total de TODOS os pedidos criados no mês.
-        faturamento = pedidos_no_mes.aggregate(total=Sum('valor_total'))['total'] or 0
-
-        # 2. DESPESAS TOTAIS: Soma das despesas gerais + custo de produção dos pedidos do mês.
-        despesas_operacionais = despesas_gerais_no_mes.aggregate(total=Sum('valor'))['total'] or 0
-        custo_producao_pedidos = pedidos_no_mes.aggregate(total=Sum('custo_producao'))['total'] or 0
+        faturamento = pedidos_no_periodo.aggregate(total=Sum('valor_total'))['total'] or 0
+        despesas_operacionais = despesas_gerais_no_periodo.aggregate(total=Sum('valor'))['total'] or 0
+        custo_producao_pedidos = pedidos_no_periodo.aggregate(total=Sum('custo_producao'))['total'] or 0
         despesas_totais = despesas_operacionais + custo_producao_pedidos
-        
-        # 3. LUCRO BRUTO: Faturamento do mês menos o custo de produção dos pedidos do mês.
         lucro = faturamento - custo_producao_pedidos
-
-        # --- CÁLCULOS GLOBAIS (NÃO DEPENDEM DO MÊS) ---
-
-        # 4. VALOR A RECEBER: Soma de todos os saldos devedores de pedidos PENDENTES ou PARCIAIS.
-        pedidos_nao_quitados = Pedido.objects.filter(
-            Q(status_pagamento='PENDENTE') | Q(status_pagamento='PARCIAL')
-        )
+        
+        # Valor a Receber continua sendo global, não depende do filtro de data
+        pedidos_nao_quitados = Pedido.objects.filter(Q(status_pagamento='PENDENTE') | Q(status_pagamento='PARCIAL'))
         total_devido = pedidos_nao_quitados.aggregate(total=Sum('valor_total'))['total'] or 0
         total_pago_parcialmente = Pagamento.objects.filter(pedido__in=pedidos_nao_quitados).aggregate(total=Sum('valor'))['total'] or 0
         a_receber = total_devido - total_pago_parcialmente
 
-        # Monta o objeto de resposta final
-        data = {
-            'faturamento': faturamento,
-            'despesas': despesas_totais,
-            'lucro': lucro,
-            'valor_a_receber': a_receber,
-        }
-
+        data = {'faturamento': faturamento, 'despesas': despesas_totais, 'lucro': lucro, 'valor_a_receber': a_receber}
         return Response(data)
     
 
