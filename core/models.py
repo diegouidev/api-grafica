@@ -49,6 +49,25 @@ class Produto(models.Model):
         help_text="Preço por unidade ou por metro quadrado"
     )
 
+    custo = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        help_text="Custo de PRODUÇÃO por unidade ou por metro quadrado"
+    )
+    estoque_atual = models.IntegerField(
+        default=0, 
+        null=True, 
+        blank=True, 
+        help_text="Quantidade atual em estoque. Nulo para serviços."
+    )
+    estoque_minimo = models.IntegerField(
+        default=0, 
+        null=True, 
+        blank=True, 
+        help_text="Nível de alerta para o estoque"
+    )
+
     def __str__(self):
         return f'{self.nome} ({self.get_tipo_precificacao_display()})'
 
@@ -131,6 +150,10 @@ class ItemOrcamento(models.Model):
             else:  # 'UNICO'
                 self.subtotal = self.produto.preco * self.quantidade
         super().save(*args, **kwargs)
+
+    @property
+    def nome_exibido(self):
+        return self.descricao_customizada or self.produto.nome
 
     def __str__(self):
         base = self.descricao_customizada or self.produto.nome

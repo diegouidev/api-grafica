@@ -36,7 +36,7 @@ class ClienteSerializer(serializers.ModelSerializer):
 class ProdutoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Produto
-        fields = ['id', 'nome', 'tipo_precificacao', 'preco']
+        fields = ['id', 'nome', 'tipo_precificacao', 'preco', 'custo', 'estoque_atual', 'estoque_minimo']
 
 class ProdutoResumidoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -212,3 +212,99 @@ class EmpresaPublicaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empresa
         fields = ['nome_empresa', 'logo_grande_dashboard']
+
+
+class RelatorioClienteSerializer(serializers.ModelSerializer):
+    total_gasto = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    ultimo_pedido = serializers.DateField(read_only=True)
+    
+    # CORREÇÃO: Mudado de IntegerField para SerializerMethodField
+    dias_inativo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cliente
+        fields = ['id', 'nome', 'telefone', 'cpf_cnpj', 'total_gasto', 'ultimo_pedido', 'dias_inativo']
+    
+    # Adicionamos o método getter para extrair os dias
+    def get_dias_inativo(self, obj):
+        if hasattr(obj, 'dias_inativo') and obj.dias_inativo:
+            return obj.dias_inativo.days
+        return None
+
+class RelatorioPedidosAtrasadosSerializer(serializers.ModelSerializer):
+    cliente_nome = serializers.CharField(source='cliente.nome')
+    
+    # CORREÇÃO: Mudado de IntegerField para SerializerMethodField
+    dias_atraso = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pedido
+        fields = ['id', 'cliente_nome', 'dias_atraso']
+
+    # Adicionamos o método getter para extrair os dias
+    def get_dias_atraso(self, obj):
+        if hasattr(obj, 'dias_atraso') and obj.dias_atraso:
+            return obj.dias_atraso.days
+        return 0
+
+class FormaPagamentoAgrupadoSerializer(serializers.Serializer):
+    forma_pagamento = serializers.CharField()
+    value = serializers.IntegerField()
+
+
+class StatusOrcamentoAgrupadoSerializer(serializers.Serializer):
+    """ Serializer para o gráfico de pizza de status de orçamentos. """
+    status = serializers.CharField()
+    value = serializers.IntegerField() # 'value' é o nome que o recharts espera
+
+class ProdutosOrcadosAgrupadoSerializer(serializers.Serializer):
+    """ Serializer para o gráfico de barras de produtos mais orçados. """
+    produto__nome = serializers.CharField()
+    value = serializers.IntegerField()
+
+class RelatorioOrcamentoRecenteSerializer(serializers.ModelSerializer):
+    """ Serializer para a tabela de orçamentos recentes. """
+    cliente_nome = serializers.CharField(source='cliente.nome')
+    produto_principal = serializers.SerializerMethodField()
+    # 'tempo_resposta' é complexo, vamos simplificar por agora
+    
+    class Meta:
+        model = Orcamento
+        fields = ['id', 'cliente_nome', 'produto_principal', 'valor_total', 'data_criacao', 'status']
+
+    def get_produto_principal(self, obj):
+        # Pega o nome do primeiro item do orçamento
+        primeiro_item = obj.itens.first()
+        if primeiro_item:
+            return primeiro_item.nome_exibido
+        return "N/A"
+    
+
+class RelatorioProdutoVendidoSerializer(serializers.Serializer):
+    """
+    Serializer para o gráfico de barras "Produtos Mais Vendidos".
+    Espera 'produto__nome' e 'total_vendido'.
+    """
+    name = serializers.CharField(source='produto__nome')
+    value = serializers.IntegerField(source='total_vendido')
+
+class RelatorioProdutoLucrativoSerializer(serializers.Serializer):
+    """
+    Serializer para a lista "Produtos Mais Lucrativos".
+    Espera 'produto__nome', 'margem' e 'lucro_total'.
+    """
+    name = serializers.CharField(source='produto__nome')
+    margem = serializers.DecimalField(max_digits=5, decimal_places=2)
+    total_lucro = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+class RelatorioProdutoBaixaDemandaSerializer(serializers.ModelSerializer):
+    """
+    Serializer para a tabela "Produtos em Baixa Demanda".
+    Espera uma instância de Produto anotada com 'ultima_venda' e 'dias_sem_venda'.
+    """
+    ultima_venda = serializers.DateField(read_only=True)
+    dias_sem_venda = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = Produto
+        fields = ['id', 'nome', 'preco', 'ultima_venda', 'dias_sem_venda']

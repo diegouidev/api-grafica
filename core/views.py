@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, Q, Value, CharField
 from .models import Pedido, Despesa
 from django.db import transaction
 import datetime
@@ -14,6 +13,9 @@ from django.template.loader import render_to_string
 from weasyprint import HTML, CSS
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
+from django.db.models import Avg, Sum, Q, Value, CharField, Max, F, ExpressionWrapper, fields, Count, DecimalField, Case, When
+from django.utils import timezone
+from django.db.models.functions import TruncMonth, Coalesce
 
 from .models import (
     Cliente, Produto, Orcamento, ItemOrcamento, Pedido, ItemPedido, Pagamento, Empresa
@@ -21,7 +23,10 @@ from .models import (
 from .serializers import (
     ClienteSerializer, ProdutoSerializer, OrcamentoSerializer,
     ItemOrcamentoSerializer, PedidoSerializer, ItemPedidoSerializer, PagamentoSerializer, DespesaConsolidadaSerializer, 
-    DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer, EmpresaPublicaSerializer
+    DespesaSerializer, EmpresaSerializer, UserSerializer, ChangePasswordSerializer, EmpresaPublicaSerializer, RelatorioClienteSerializer,
+    RelatorioPedidosAtrasadosSerializer, FormaPagamentoAgrupadoSerializer, StatusOrcamentoAgrupadoSerializer, 
+    ProdutosOrcadosAgrupadoSerializer, RelatorioOrcamentoRecenteSerializer, RelatorioProdutoVendidoSerializer,
+    RelatorioProdutoLucrativoSerializer, RelatorioProdutoBaixaDemandaSerializer
 )
 from django.contrib.auth.models import User
 from django.utils.timezone import now
@@ -603,3 +608,231 @@ class ClientesMaisAtivosView(APIView):
             for item in clientes
         ]
         return Response(data_formatada)
+    
+
+class RelatorioClientesView(APIView):
+    """
+    View para fornecer dados agregados para a aba de relatórios de clientes.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        hoje = timezone.now().date()
+        data_30_dias_atras = hoje - datetime.timedelta(days=30)
+        data_90_dias_atras = hoje - datetime.timedelta(days=90)
+
+        # 1. Total de Clientes
+        total_clientes = Cliente.objects.count()
+
+        # 2. Novos Clientes (cadastrados nos últimos 30 dias)
+        novos_clientes_30d = Cliente.objects.filter(data_cadastro__gte=data_30_dias_atras).count()
+
+        # 3. Clientes Ativos (com pedidos nos últimos 90 dias)
+        clientes_ativos_ids = Pedido.objects.filter(
+            data_criacao__gte=data_90_dias_atras
+        ).values_list('cliente_id', flat=True).distinct()
+        clientes_ativos_90d = len(clientes_ativos_ids)
+        
+        # 4. Clientes Inativos (sem pedidos nos últimos 90 dias)
+        clientes_inativos = Cliente.objects.exclude(id__in=clientes_ativos_ids).annotate(
+            total_gasto=Coalesce(Sum('pedidos__valor_total'), 0.0, output_field=DecimalField()),
+            ultimo_pedido=Max('pedidos__data_criacao__date'),
+            dias_inativo=ExpressionWrapper(
+                hoje - F('ultimo_pedido'),
+                output_field=fields.IntegerField()
+            )
+        ).order_by('-total_gasto')
+
+        # Serializa a lista de inativos
+        inativos_serializer = RelatorioClienteSerializer(clientes_inativos, many=True)
+
+        # Monta o objeto de resposta final
+        data = {
+            'total_clientes': total_clientes,
+            'novos_clientes_30d': novos_clientes_30d,
+            'clientes_ativos_90d': clientes_ativos_90d,
+            'clientes_inativos_90d': clientes_inativos.count(),
+            'lista_inativos': inativos_serializer.data
+        }
+        
+        return Response(data)
+    
+
+class RelatorioPedidosView(APIView):
+    """
+    Fornece todos os dados agregados para a aba de relatórios de pedidos.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        hoje = timezone.now().date()
+        
+        # 1. Total de Pedidos
+        total_pedidos = Pedido.objects.count()
+
+        # 2. Pedidos Atrasados (count e lista)
+        pedidos_atrasados_query = Pedido.objects.filter(
+            previsto_entrega__lt=hoje,
+            status_producao__in=['Aguardando', 'Aguardando Arte', 'Em Produção']
+        ).annotate(
+            dias_atraso=ExpressionWrapper(
+                hoje - F('previsto_entrega'),
+                output_field=fields.DurationField()
+            )
+        )
+        pedidos_atrasados_count = pedidos_atrasados_query.count()
+        lista_atrasados = RelatorioPedidosAtrasadosSerializer(pedidos_atrasados_query, many=True).data
+
+        # 3. Lucro Médio por Pedido
+        lucro_medio = Pedido.objects.filter(status_pagamento='PAGO').aggregate(
+            lucro_avg=Avg(F('valor_total') - F('custo_producao'))
+        )['lucro_avg'] or 0
+
+        # 4. Tempo Médio de Produção (calcula de 'criado' até 'finalizado')
+        pedidos_finalizados = Pedido.objects.filter(status_producao='Finalizado')
+        tempo_medio = pedidos_finalizados.annotate(
+            tempo_producao=ExpressionWrapper(F('data_producao') - F('data_criacao'), output_field=fields.DurationField())
+        ).aggregate(
+            avg_tempo=Avg('tempo_producao')
+        )['avg_tempo']
+        
+        # 5. Pedidos por Forma de Pagamento (CONTAGEM de pagamentos)
+        pedidos_por_pagamento = Pagamento.objects.values('forma_pagamento').annotate(
+            value=Count('id')
+        ).order_by('-value')
+        pedidos_por_pagamento_data = FormaPagamentoAgrupadoSerializer(pedidos_por_pagamento, many=True).data
+
+        # Monta o objeto de resposta final
+        data = {
+            'total_pedidos': total_pedidos,
+            'pedidos_atrasados_count': pedidos_atrasados_count,
+            'lucro_medio_pedido': lucro_medio,
+            'tempo_medio_producao_dias': tempo_medio.days if tempo_medio else 0,
+            'lista_pedidos_atrasados': lista_atrasados,
+            'pedidos_por_forma_pagamento': pedidos_por_pagamento_data,
+        }
+        
+        return Response(data)
+
+
+class RelatorioOrcamentosView(APIView):
+    """
+    Fornece todos os dados agregados para a aba de relatórios de orçamentos.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        orcamentos = Orcamento.objects.all()
+        
+        # --- 1. Cálculos para os Cards ---
+        total_orcamentos = orcamentos.count()
+        aprovados = orcamentos.filter(status='Aprovado').count()
+        recusados = orcamentos.filter(status='Rejeitado').count()
+        pendentes = orcamentos.filter(status='Em Aberto').count()
+        
+        taxa_conversao = (aprovados / total_orcamentos * 100) if total_orcamentos > 0 else 0
+        
+        valor_total_orcado = orcamentos.aggregate(total=Sum('valor_total'))['total'] or 0
+        valor_total_aprovado = orcamentos.filter(status='Aprovado').aggregate(total=Sum('valor_total'))['total'] or 0
+        
+        # --- 2. Dados para o Gráfico de Pizza (Status) ---
+        status_data = orcamentos.values('status').annotate(value=Count('id'))
+        status_serializer = StatusOrcamentoAgrupadoSerializer(status_data, many=True)
+
+        # --- 3. Dados para o Gráfico de Barras (Top Produtos Orçados) ---
+        produtos_data = ItemOrcamento.objects.values('produto__nome').annotate(value=Count('id')).order_by('-value')[:5]
+        produtos_serializer = ProdutosOrcadosAgrupadoSerializer(produtos_data, many=True)
+        
+        # --- 4. Dados para a Tabela (Orçamentos Recentes) ---
+        recentes_data = orcamentos.order_by('-data_criacao')[:6]
+        recentes_serializer = RelatorioOrcamentoRecenteSerializer(recentes_data, many=True)
+        
+        # Monta o objeto de resposta final
+        data = {
+            'cards': {
+                'total_orcamentos': total_orcamentos,
+                'taxa_conversao': taxa_conversao,
+                'tempo_medio_resposta': "1.8 dias", # Valor estático por enquanto
+                'valor_total_orcado': valor_total_orcado,
+                'valor_total_aprovado': valor_total_aprovado,
+                'aprovados_count': aprovados,
+                'recusados_count': recusados,
+            },
+            'grafico_status': status_serializer.data,
+            'grafico_produtos': produtos_serializer.data,
+            'tabela_recentes': recentes_serializer.data,
+        }
+        
+        return Response(data)
+    
+
+class RelatorioProdutosView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request, *args, **kwargs):
+        hoje = timezone.now().date()
+        data_60_dias_atras = hoje - datetime.timedelta(days=60)
+        start_of_month = hoje.replace(day=1)
+
+        agregados_produto = Produto.objects.aggregate(
+            total_produtos=Count('id'),
+            custo_medio=Avg('custo'),
+            preco_medio=Avg('preco')
+        )
+        alertas_estoque = Produto.objects.filter(
+            estoque_atual__isnull=False, 
+            estoque_minimo__gt=0, 
+            estoque_atual__lt=F('estoque_minimo')
+        ).count()
+        cards_data = {
+            "total_produtos": agregados_produto['total_produtos'] or 0,
+            "custo_medio": agregados_produto['custo_medio'] or 0,
+            "preco_medio_venda": agregados_produto['preco_medio'] or 0,
+            "alertas_estoque": alertas_estoque,
+        }
+
+        produtos_vendidos = ItemPedido.objects.filter(pedido__data_criacao__gte=start_of_month)\
+            .values('produto__nome')\
+            .annotate(total_vendido=Sum('quantidade'))\
+            .order_by('-total_vendido')[:5]
+        grafico_vendidos_serializer = RelatorioProdutoVendidoSerializer(produtos_vendidos, many=True)
+
+        produtos_lucrativos = ItemPedido.objects.filter(produto__custo__gt=0, produto__preco__gt=0)\
+            .values('produto__nome')\
+            .annotate(
+                total_lucro=Sum(F('subtotal') - (F('produto__custo') * F('quantidade'))),
+                receita_total=Sum('subtotal'),
+                custo_total=Sum(F('produto__custo') * F('quantidade'))
+            )\
+            .annotate(
+                # AQUI ESTÁ A CORREÇÃO:
+                # Dizemos ao Coalesce para usar um DecimalField com valor 0.0
+                margem=Case(
+                    When(receita_total=0, then=Value(0.0, output_field=DecimalField())),
+                    default=ExpressionWrapper(
+                        (F('receita_total') - F('custo_total')) * 100.0 / F('receita_total'),
+                        output_field=DecimalField()
+                    )
+                )
+            )\
+            .order_by('-total_lucro')[:6]
+        lucrativos_serializer = RelatorioProdutoLucrativoSerializer(produtos_lucrativos, many=True)
+        
+        produtos_baixa_demanda = Produto.objects.annotate(
+            ultima_venda=Max('itempedido__pedido__data_criacao__date')
+        ).filter(
+            Q(ultima_venda__lt=data_60_dias_atras) | Q(ultima_venda__isnull=True)
+        ).annotate(
+            dias_sem_venda=ExpressionWrapper(
+                hoje - F('ultima_venda'),
+                output_field=fields.DurationField()
+            )
+        ).order_by('ultima_venda')[:6]
+        baixa_demanda_serializer = RelatorioProdutoBaixaDemandaSerializer(produtos_baixa_demanda, many=True)
+
+        data = {
+            'cards': cards_data,
+            'grafico_mais_vendidos': grafico_vendidos_serializer.data,
+            'lista_mais_lucrativos': lucrativos_serializer.data,
+            'tabela_baixa_demanda': baixa_demanda_serializer.data,
+        }
+        return Response(data)

@@ -7,8 +7,9 @@ from .views import (
     DespesaViewSet, DespesaConsolidadaView, VendasRecentesView, FaturamentoPorPagamentoView, 
     RelatorioFaturamentoView, OrcamentoPDFView, PedidoPDFView, EmpresaSettingsView, UserProfileView, 
     ChangePasswordView, EmpresaPublicaView, EvolucaoVendasView, PedidosPorStatusView,
-    ProdutosMaisVendidosView, ClientesMaisAtivosView
-)
+    ProdutosMaisVendidosView, ClientesMaisAtivosView, RelatorioClientesView, RelatorioPedidosView, RelatorioOrcamentosView,
+    RelatorioProdutosView
+) 
 
 router = DefaultRouter()
 
@@ -38,5 +39,9 @@ urlpatterns = [
     path('relatorios/pedidos-por-status/', PedidosPorStatusView.as_view(), name='pedidos-por-status'),
     path('relatorios/produtos-mais-vendidos/', ProdutosMaisVendidosView.as_view(), name='produtos-mais-vendidos'),
     path('relatorios/clientes-mais-ativos/', ClientesMaisAtivosView.as_view(), name='clientes-mais-ativos'),
+    path('relatorios/clientes/', RelatorioClientesView.as_view(), name='relatorio-clientes'),
+    path('relatorios/pedidos/', RelatorioPedidosView.as_view(), name='relatorio-pedidos'),
+    path('relatorios/orcamentos/', RelatorioOrcamentosView.as_view(), name='relatorio-orcamentos'),
+    path('relatorios/produtos/', RelatorioProdutosView.as_view(), name='relatorio-produtos'),
     
 ]
